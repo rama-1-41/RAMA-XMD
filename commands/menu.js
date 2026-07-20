@@ -8,7 +8,7 @@ const {
 
 // Bot configuration
 const BOT_NAME = process.env.BOT_NAME || "RAMA-XMD";
-const OWNER_NAME = process.env.OWNER_NAME || "404unkown";
+const OWNER_NAME = process.env.OWNER_NAME || "mr presenter";
 const PREFIX = process.env.PREFIX || ".";
 const REPO_LINK = process.env.REPO_LINK || "https://github.com";
 const MENU_IMAGE_URL = process.env.MENU_IMAGE_URL || "https://files.catbox.moe/0dfeid.jpg";
@@ -36,11 +36,11 @@ module.exports = {
             
             // Get built-in commands that are hardcoded in servers.js
             const builtInCommands = [
-                { name: 'ping', tags: ['utility'] },
-                { name: 'prefix', tags: ['settings'] },
-                { name: 'menu', tags: ['utility'] },
-                { name: 'help', tags: ['utility'] },
-                { name: 'RAMA-XMD', tags: ['utility'] }
+                { name: 'ping', category: 'utility' },
+                { name: 'prefix', category: 'settings' },
+                { name: 'menu', category: 'utility' },
+                { name: 'help', category: 'utility' },
+                { name: 'RAMA-XMD', category: 'utility' }
             ];
             
             // Build command list from loaded commands
@@ -48,28 +48,34 @@ module.exports = {
             for (const [pattern, command] of allCommands.entries()) {
                 // Skip the menu command itself to avoid duplication
                 if (pattern === 'menu' || pattern === 'help' || pattern === 'RAMA-XMD') continue;
+                
+                // Check if command has category or tags
+                let category = command.category || 'general';
+                if (command.tags && Array.isArray(command.tags)) {
+                    category = command.tags[0] || 'general';
+                }
+                
                 folderCommands.push({
                     name: pattern,
-                    tags: command.tags || ['general']
+                    category: category
                 });
             }
             
             // Combine built-in and folder commands
             const allCommandList = [...builtInCommands, ...folderCommands];
             
-            // Group commands by tags dynamically
-            const commandsByTag = {};
+            // Group commands by category
+            const commandsByCategory = {};
             allCommandList.forEach(cmd => {
-                cmd.tags.forEach(tag => {
-                    if (!commandsByTag[tag]) {
-                        commandsByTag[tag] = [];
-                    }
-                    commandsByTag[tag].push(cmd);
-                });
+                const cat = cmd.category || 'general';
+                if (!commandsByCategory[cat]) {
+                    commandsByCategory[cat] = [];
+                }
+                commandsByCategory[cat].push(cmd);
             });
             
-            // Define emojis for tags
-            const tagEmojis = {
+            // Define emojis for categories
+            const categoryEmojis = {
                 'utility': '🔧',
                 'settings': '⚙️',
                 'admin': '👑',
@@ -82,15 +88,22 @@ module.exports = {
                 'owner': '👤',
                 'ai': '🤖',
                 'tools': '🛠️',
+                'search': '🔍',
+                'info': 'ℹ️',
+                'audio': '🎵',
+                'text': '✍️',
+                'anime': '🎌',
+                'finance': '💰',
+                'emoji': '😊'
             };
             
             // Prepare categories for carousel
             const categoriesRaw = [];
-            for (const [tag, cmds] of Object.entries(commandsByTag)) {
-                const emoji = tagEmojis[tag] || '🔹';
+            for (const [category, cmds] of Object.entries(commandsByCategory)) {
+                const emoji = categoryEmojis[category] || '🔹';
                 const commandNames = cmds.map(cmd => cmd.name);
                 categoriesRaw.push({
-                    name: `${emoji} ${tag.toUpperCase()}`,
+                    name: `${emoji} ${category.toUpperCase()}`,
                     commands: commandNames
                 });
             }
@@ -200,7 +213,6 @@ module.exports = {
             console.error('❌ Menu error:', error);
             // Fallback to simple text menu if carousel fails
             try {
-                const { reply } = options;
                 const fallbackMenu = generateFallbackMenu();
                 await conn.sendMessage(from, { text: fallbackMenu }, { quoted: message });
             } catch (fallbackError) {
@@ -215,35 +227,40 @@ function generateFallbackMenu() {
     const allCommands = global.commands || new Map();
     
     const builtInCommands = [
-        { name: 'ping', tags: ['utility'] },
-        { name: 'prefix', tags: ['settings'] },
-        { name: 'menu', tags: ['utility'] },
-        { name: 'help', tags: ['utility'] },
-        { name: 'RAMA-XMD', tags: ['utility'] }
+        { name: 'ping', category: 'utility' },
+        { name: 'prefix', category: 'settings' },
+        { name: 'menu', category: 'utility' },
+        { name: 'help', category: 'utility' },
+        { name: 'RAMA-XMD', category: 'utility' }
     ];
     
     const folderCommands = [];
     for (const [pattern, command] of allCommands.entries()) {
         if (pattern === 'menu' || pattern === 'help' || pattern === 'RAMA-XMD') continue;
+        
+        let category = command.category || 'general';
+        if (command.tags && Array.isArray(command.tags)) {
+            category = command.tags[0] || 'general';
+        }
+        
         folderCommands.push({
             name: pattern,
-            tags: command.tags || ['general']
+            category: category
         });
     }
     
     const allCommandList = [...builtInCommands, ...folderCommands];
     
-    const commandsByTag = {};
+    const commandsByCategory = {};
     allCommandList.forEach(cmd => {
-        cmd.tags.forEach(tag => {
-            if (!commandsByTag[tag]) {
-                commandsByTag[tag] = [];
-            }
-            commandsByTag[tag].push(cmd);
-        });
+        const cat = cmd.category || 'general';
+        if (!commandsByCategory[cat]) {
+            commandsByCategory[cat] = [];
+        }
+        commandsByCategory[cat].push(cmd);
     });
     
-    const tagEmojis = {
+    const categoryEmojis = {
         'utility': '🔧',
         'settings': '⚙️',
         'admin': '👑',
@@ -256,6 +273,13 @@ function generateFallbackMenu() {
         'owner': '👤',
         'ai': '🤖',
         'tools': '🛠️',
+        'search': '🔍',
+        'info': 'ℹ️',
+        'audio': '🎵',
+        'text': '✍️',
+        'anime': '🎌',
+        'finance': '💰',
+        'emoji': '😊'
     };
     
     let menuText = `╔══════════════════════════════════════╗\n`;
@@ -268,9 +292,9 @@ function generateFallbackMenu() {
     menuText += `║  📋 MENU LIST                       ║\n`;
     menuText += `╠══════════════════════════════════════╣\n`;
     
-    for (const [tag, cmds] of Object.entries(commandsByTag)) {
-        const emoji = tagEmojis[tag] || '🔹';
-        menuText += `║  ${emoji} ${tag.toUpperCase().padEnd(30)}║\n`;
+    for (const [category, cmds] of Object.entries(commandsByCategory)) {
+        const emoji = categoryEmojis[category] || '🔹';
+        menuText += `║  ${emoji} ${category.toUpperCase().padEnd(30)}║\n`;
         for (const cmd of cmds) {
             menuText += `║     ➤ ${PREFIX}${cmd.name.padEnd(30)}║\n`;
         }
