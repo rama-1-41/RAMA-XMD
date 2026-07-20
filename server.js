@@ -201,6 +201,9 @@ function loadCommands() {
 // Initial command load
 loadCommands();
 
+// Explicitly import menu command to guarantee it's available
+require('./commands/menu');
+
 // Watch for changes in commands directory
 if (fs.existsSync(commandsPath)) {
     fs.watch(commandsPath, (eventType, filename) => {
