@@ -104,17 +104,17 @@ let PREFIX = process.env.PREFIX || ".";
 
 // Bot configuration from environment variables
 const BOT_NAME = process.env.BOT_NAME || "RAMA-XMD";
-const OWNER_NAME = process.env.OWNER_NAME || "404unkown";
+const OWNER_NAME = process.env.OWNER_NAME || "mr presenter";
 
 const MENU_IMAGE_URL = process.env.MENU_IMAGE_URL || "https://files.catbox.moe/0dfeid.jpg";
 const REPO_LINK = process.env.REPO_LINK || "https://github.com";
 
 // Auto-status configuration
 const AUTO_STATUS_SEEN = process.env.AUTO_STATUS_SEEN || "true";
-const AUTO_STATUS_REACT = process.env.AUTO_STATUS_REACT || "false";
-const AUTO_STATUS_REPLY = process.env.AUTO_STATUS_REPLY || "false";
+const AUTO_STATUS_REACT = process.env.AUTO_STATUS_REACT || "true";
+const AUTO_STATUS_REPLY = process.env.AUTO_STATUS_REPLY || "true";
 const AUTO_STATUS_MSG = process.env.AUTO_STATUS_MSG || "YOUR STATUS HAS BEEN SEEN BY RAMA-XMD 💜";
-const DEV = process.env.DEV || '404unkown';
+const DEV = process.env.DEV || 'mrpresenter';
 
 // Track login state globally
 let isUserLoggedIn = false;
