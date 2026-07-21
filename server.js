@@ -201,28 +201,6 @@ function loadCommands() {
 // Initial command load
 loadCommands();
 
-// ============================================================
-// 🔥 ADDED BLOCK: Explicitly import and register the menu command
-// in case the dynamic loader missed it.
-// ============================================================
-if (!commands.has('menu')) {
-    try {
-        const menuModule = require('./commands/menu');
-        if (menuModule.pattern && menuModule.execute) {
-            commands.set(menuModule.pattern, menuModule);
-            if (menuModule.alias && Array.isArray(menuModule.alias)) {
-                menuModule.alias.forEach(alias => commands.set(alias, menuModule));
-            }
-            console.log('✅ Menu command explicitly registered.');
-        } else {
-            console.log('⚠️ Menu module loaded but invalid format.');
-        }
-    } catch (e) {
-        console.error('❌ Failed to explicitly load menu command:', e.message);
-    }
-}
-// ============================================================
-
 // Watch for changes in commands directory
 if (fs.existsSync(commandsPath)) {
     fs.watch(commandsPath, (eventType, filename) => {
@@ -465,6 +443,203 @@ function getQuotedMessage(message) {
     };
 }
 
+// Runtime function for menu
+function runtime(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${hours}h ${minutes}m ${secs}s`;
+}
+
+// Generate interactive carousel menu
+async function generateCarouselMenu(conn, from, message) {
+    try {
+        // Get all commands from the global commands Map
+        const allCommands = global.commands || new Map();
+        
+        // Get built-in commands
+        const builtInCommands = [
+            { name: 'ping', tags: ['utility'] },
+            { name: 'prefix', tags: ['settings'] },
+            { name: 'menu', tags: ['utility'] },
+            { name: 'help', tags: ['utility'] },
+            { name: 'RAMA-XMD', tags: ['utility'] }
+        ];
+        
+        // Build command list from loaded commands
+        const folderCommands = [];
+        for (const [pattern, command] of allCommands.entries()) {
+            if (pattern === 'menu' || pattern === 'help' || pattern === 'RAMA-XMD') continue;
+            
+            let tags = command.tags || ['general'];
+            if (command.category) {
+                tags = [command.category];
+            }
+            
+            folderCommands.push({
+                name: pattern,
+                tags: tags
+            });
+        }
+        
+        // Combine all commands
+        const allCommandList = [...builtInCommands, ...folderCommands];
+        
+        // Group commands by tags
+        const commandsByTag = {};
+        allCommandList.forEach(cmd => {
+            cmd.tags.forEach(tag => {
+                if (!commandsByTag[tag]) {
+                    commandsByTag[tag] = [];
+                }
+                commandsByTag[tag].push(cmd);
+            });
+        });
+        
+        // Define emojis for tags
+        const tagEmojis = {
+            'utility': '🔧',
+            'settings': '⚙️',
+            'admin': '👑',
+            'general': '📦',
+            'fun': '🎮',
+            'game': '🎲',
+            'media': '🎬',
+            'download': '⬇️',
+            'group': '👥',
+            'owner': '👤',
+            'ai': '🤖',
+            'tools': '🛠️',
+            'search': '🔍',
+            'info': 'ℹ️',
+            'audio': '🎵',
+            'text': '✍️',
+            'anime': '🎌',
+            'finance': '💰',
+            'emoji': '😊'
+        };
+        
+        // Prepare categories for carousel
+        const categoriesRaw = [];
+        for (const [tag, cmds] of Object.entries(commandsByTag)) {
+            const emoji = tagEmojis[tag] || '🔹';
+            const commandNames = cmds.map(cmd => cmd.name);
+            categoriesRaw.push({
+                name: `${emoji} ${tag.toUpperCase()}`,
+                commands: commandNames
+            });
+        }
+        
+        // Sort categories alphabetically
+        categoriesRaw.sort((a, b) => a.name.localeCompare(b.name));
+        
+        // Build carousel cards
+        const CHUNK_SIZE = 12;
+        const cards = [];
+        
+        // Get menu image
+        let imageBuffer = null;
+        try {
+            const imagePath = path.join(__dirname, 'assets/bot_image.jpg');
+            if (fs.existsSync(imagePath)) {
+                imageBuffer = fs.readFileSync(imagePath);
+            }
+        } catch (error) {
+            console.log("No local image found");
+        }
+        
+        const { generateWAMessageContent, generateWAMessageFromContent } = require('@whiskeysockets/baileys');
+        
+        async function getImageMessage(buffer) {
+            if (!buffer) return null;
+            try {
+                const content = await generateWAMessageContent(
+                    { image: buffer },
+                    { upload: conn.waUploadToServer }
+                );
+                return content.imageMessage;
+            } catch (error) {
+                console.error("Error generating image message:", error);
+                return null;
+            }
+        }
+        
+        const menuImage = imageBuffer ? await getImageMessage(imageBuffer) : null;
+        
+        // First card: Bot info
+        const infoDesc = `╔══[✦${BOT_NAME}✦]══╗
+║✦ ↳ *NAME:* 🔥${BOT_NAME}🔥
+║✦ ↳ *RUNTIME:* ${runtime(process.uptime())}
+║✦ ↳ *VERSION:* v3.0.7
+║✦ ↳ *OWNER:* 🧩${OWNER_NAME}🧩
+║✦ ↳ *PREFIX:* ${PREFIX}
+║✦ ↳ *TOTAL CMDS:* ${allCommandList.length}
+╚═══════✦═══════╝`;
+        
+        cards.push({
+            header: { title: `${BOT_NAME} INFO`, hasMediaAttachment: !!menuImage, imageMessage: menuImage },
+            body: { text: infoDesc },
+            footer: { text: `Page 1` },
+            nativeFlowMessage: {
+                buttons: [
+                    { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📢 CHANNEL", url: "https://whatsapp.com/channel/0029Vb5ytZEE50UbwV7xBv1k" }) },
+                    { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🔗 REPO", url: REPO_LINK }) }
+                ]
+            }
+        });
+        
+        // Process each category, splitting into multiple cards if needed
+        let cardIndex = 1;
+        for (const cat of categoriesRaw) {
+            const total = cat.commands.length;
+            const numChunks = Math.ceil(total / CHUNK_SIZE);
+            for (let chunk = 0; chunk < numChunks; chunk++) {
+                const start = chunk * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, total);
+                const chunkCommands = cat.commands.slice(start, end);
+                let cmdList = '';
+                chunkCommands.forEach(cmd => {
+                    cmdList += `║✦ ↳ ${PREFIX}${cmd}\n`;
+                });
+                const title = (chunk === 0) ? `${cat.name}` : `${cat.name} (cont.)`;
+                const desc = `╔═[✦ ${title} ✦]═╗\n${cmdList}╚━━━━━━━━━━━━━━━━━━━✦`;
+                cardIndex++;
+                cards.push({
+                    header: { title: `${title}`, hasMediaAttachment: !!menuImage, imageMessage: menuImage },
+                    body: { text: desc },
+                    footer: { text: `Page ${cardIndex}` },
+                    nativeFlowMessage: {
+                        buttons: [
+                            { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📢 CHANNEL", url: "https://whatsapp.com/channel/0029Vb5ytZEE50UbwV7xBv1k" }) },
+                            { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🔗 REPO", url: REPO_LINK }) }
+                        ]
+                    }
+                });
+            }
+        }
+        
+        // Build and send carousel
+        const interactiveMsg = generateWAMessageFromContent(from, {
+            viewOnceMessage: {
+                message: {
+                    interactiveMessage: {
+                        body: { text: `✨ ${BOT_NAME} ✨` },
+                        footer: { text: `CYBER DARK BOT` },
+                        carouselMessage: { cards }
+                    }
+                }
+            }
+        }, { quoted: message });
+        
+        await conn.relayMessage(from, interactiveMsg.message, { messageId: interactiveMsg.key.id });
+        return true;
+        
+    } catch (error) {
+        console.error('❌ Carousel menu error:', error);
+        return false;
+    }
+}
+
 // Handle incoming messages and execute commands
 async function handleMessage(conn, message, sessionId) {
     try {
@@ -526,7 +701,7 @@ async function handleMessage(conn, message, sessionId) {
 
         console.log(`🔍 Detected command: ${commandName} from user: ${sessionId}`);
 
-        // Handle built-in commands
+        // Handle built-in commands (only ping and prefix now)
         if (await handleBuiltInCommands(conn, message, commandName, args, sessionId)) {
             return;
         }
@@ -612,7 +787,7 @@ async function handleMessage(conn, message, sessionId) {
     }
 }
 
-// Handle built-in commands - UPDATED (removed menu, help, ping)
+// Handle built-in commands - ONLY ping and prefix now
 async function handleBuiltInCommands(conn, message, commandName, args, sessionId) {
     try {
         const userPrefix = userPrefixes.get(sessionId) || PREFIX;
@@ -624,6 +799,27 @@ async function handleBuiltInCommands(conn, message, commandName, args, sessionId
             
             // For newsletters, we need to use a different sending method
             switch (commandName) {
+                case 'ping':
+                    const start = Date.now();
+                    const end = Date.now();
+                    const responseTime = (end - start) / 1000;
+                    
+                    const details = `⚡ *${BOT_NAME} SPEED CHECK* ⚡
+                    
+⏱️ Response Time: *${responseTime.toFixed(2)}s* ⚡
+👤 Owner: *${OWNER_NAME}*`;
+
+                    try {
+                        if (conn.newsletterSend) {
+                            await conn.newsletterSend(from, { text: details });
+                        } else {
+                            await conn.sendMessage(from, { text: details });
+                        }
+                    } catch (error) {
+                        console.error("Error sending to newsletter:", error);
+                    }
+                    return true;
+                    
                 case 'prefix':
                     const senderId = message.key.participant || message.key.remoteJid;
                     const isOwner = await isOwnerOrSudo(senderId, conn, from);
@@ -648,20 +844,56 @@ async function handleBuiltInCommands(conn, message, commandName, args, sessionId
                     return true;
                     
                 default:
-                    // For other commands in newsletters, just acknowledge
-                    try {
-                        if (conn.newsletterSend) {
-                            await conn.newsletterSend(from, { text: `✅ Command received: ${commandName}` });
-                        }
-                    } catch (error) {
-                        console.error("Error sending to newsletter:", error);
-                    }
-                    return true;
+                    return false;
             }
         }
         
         // Regular chat/group message handling
         switch (commandName) {
+            case 'ping':
+            case 'speed':
+                const start = Date.now();
+                await conn.sendMessage(from, { 
+                    text: `🏓 Pong! Checking speed...` 
+                }, { quoted: message });
+                const end = Date.now();
+                
+                const reactionEmojis = ['🔥', '⚡', '🚀', '💨', '🎯', '🎉', '🌟', '💥', '🕐', '🔹'];
+                const textEmojis = ['💎', '🏆', '⚡️', '🚀', '🎶', '🌠', '🌀', '🔱', '🛡️', '✨'];
+
+                const reactionEmoji = reactionEmojis[Math.floor(Math.random() * reactionEmojis.length)];
+                let textEmoji = textEmojis[Math.floor(Math.random() * textEmojis.length)];
+
+                while (textEmoji === reactionEmoji) {
+                    textEmoji = textEmojis[Math.floor(Math.random() * textEmojis.length)];
+                }
+
+                await conn.sendMessage(from, { 
+                    react: { text: textEmoji, key: message.key } 
+                });
+
+                const responseTime = (end - start) / 1000;
+
+                const details = `⚡ *${BOT_NAME} SPEED CHECK* ⚡
+                
+⏱️ Response Time: *${responseTime.toFixed(2)}s* ${reactionEmoji}
+👤 Owner: *${OWNER_NAME}*`;
+
+                await conn.sendMessage(from, {
+                    text: details,
+                    contextInfo: {
+                        externalAdReply: {
+                            title: "⚡ RAMA-XMD Speed Test",
+                            body: `${BOT_NAME} Performance Check`,
+                            thumbnailUrl: MENU_IMAGE_URL,
+                            sourceUrl: REPO_LINK,
+                            mediaType: 1,
+                            renderLargerThumbnail: true
+                        }
+                    }
+                }, { quoted: message });
+                return true;
+                
             case 'prefix':
                 const senderId = message.key.participant || message.key.remoteJid;
                 const isOwner = await isOwnerOrSudo(senderId, conn, from);
@@ -678,6 +910,37 @@ async function handleBuiltInCommands(conn, message, commandName, args, sessionId
                 }, { quoted: message });
                 return true;
                 
+            case 'menu':
+            case 'help':
+            case 'RAMA-XMD':
+                // Generate and send interactive carousel menu
+                const success = await generateCarouselMenu(conn, from, message);
+                if (!success) {
+                    // Fallback to simple text menu if carousel fails
+                    const fallbackMenu = generateFallbackMenu();
+                    await conn.sendMessage(from, {
+                        text: fallbackMenu,
+                        contextInfo: {
+                            forwardingScore: 999,
+                            isForwarded: true,
+                            forwardedNewsletterMessageInfo: {
+                                newsletterJid: "120363401269012709@newsletter",
+                                newsletterName: "RAMA-XMD",
+                                serverMessageId: 200
+                            },
+                            externalAdReply: {
+                                title: "📃 RAMA-XMD Command Menu",
+                                body: `${BOT_NAME} - All Available Commands`,
+                                thumbnailUrl: MENU_IMAGE_URL,
+                                sourceUrl: REPO_LINK,
+                                mediaType: 1,
+                                renderLargerThumbnail: true
+                            }
+                        }
+                    }, { quoted: message });
+                }
+                return true;
+                
             default:
                 return false;
         }
@@ -685,6 +948,90 @@ async function handleBuiltInCommands(conn, message, commandName, args, sessionId
         console.error("Error in built-in command:", error);
         return false;
     }
+}
+
+// Fallback text menu
+function generateFallbackMenu() {
+    const allCommands = global.commands || new Map();
+    
+    const builtInCommands = [
+        { name: 'ping', tags: ['utility'] },
+        { name: 'prefix', tags: ['settings'] },
+        { name: 'menu', tags: ['utility'] },
+        { name: 'help', tags: ['utility'] },
+        { name: 'RAMA-XMD', tags: ['utility'] }
+    ];
+    
+    const folderCommands = [];
+    for (const [pattern, command] of allCommands.entries()) {
+        if (pattern === 'menu' || pattern === 'help' || pattern === 'RAMA-XMD') continue;
+        
+        let tags = command.tags || ['general'];
+        if (command.category) {
+            tags = [command.category];
+        }
+        
+        folderCommands.push({
+            name: pattern,
+            tags: tags
+        });
+    }
+    
+    const allCommandList = [...builtInCommands, ...folderCommands];
+    
+    const commandsByTag = {};
+    allCommandList.forEach(cmd => {
+        cmd.tags.forEach(tag => {
+            if (!commandsByTag[tag]) {
+                commandsByTag[tag] = [];
+            }
+            commandsByTag[tag].push(cmd);
+        });
+    });
+    
+    const tagEmojis = {
+        'utility': '🔧',
+        'settings': '⚙️',
+        'admin': '👑',
+        'general': '📦',
+        'fun': '🎮',
+        'game': '🎲',
+        'media': '🎬',
+        'download': '⬇️',
+        'group': '👥',
+        'owner': '👤',
+        'ai': '🤖',
+        'tools': '🛠️',
+        'search': '🔍',
+        'info': 'ℹ️',
+        'audio': '🎵',
+        'text': '✍️',
+        'anime': '🎌',
+        'finance': '💰',
+        'emoji': '😊'
+    };
+    
+    let menuText = `
+🚀 ${BOT_NAME} 🚀
+
+📌 Prefix : ${PREFIX}
+👤 Owner  : ${OWNER_NAME}
+🔧 Total  : ${allCommandList.length} commands
+
+
+📋 MENU LIST
+───────────────────
+`;
+
+    for (const [tag, cmds] of Object.entries(commandsByTag)) {
+        const emoji = tagEmojis[tag] || '🔹';
+        menuText += `\n${emoji} ${tag.toUpperCase()}:\n`;
+        for (const cmd of cmds) {
+            menuText += `   ➤ ${PREFIX}${cmd.name}\n`;
+        }
+    }
+
+    return menuText;
 }
 
 // Setup connection event handlers
@@ -746,7 +1093,6 @@ ${channelStatus}
 
                         `;
 
-                        // Send welcome message to user's DM with proper JID format
                         const userJid = `${conn.user.id.split(":")[0]}@s.whatsapp.net`;
                         await conn.sendMessage(userJid, { 
                             text: up,
@@ -776,10 +1122,8 @@ ${channelStatus}
                 reconnectAttempts++;
                 console.log(`🔁 Connection closed, attempting to reconnect session: ${sessionId} (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
                 
-                // Reset connected message flag to show again after reconnect
                 hasShownConnectedMessage = false;
                 
-                // Try to reconnect after a delay
                 setTimeout(() => {
                     if (activeConnections.has(sessionId)) {
                         const { conn: existingConn } = activeConnections.get(sessionId);
@@ -787,7 +1131,6 @@ ${channelStatus}
                             existingConn.ws.close();
                         } catch (e) {}
                         
-                        // Reinitialize the connection
                         initializeConnection(sessionId);
                     }
                 }, 5000);
@@ -798,10 +1141,9 @@ ${channelStatus}
                 activeSockets = Math.max(0, activeSockets - 1);
                 broadcastStats();
                 
-                // ONLY delete session folder when user logs out (DisconnectReason.loggedOut)
                 if (lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut) {
                     setTimeout(() => {
-                        cleanupSession(sessionId, true); // Delete entire folder ONLY on logout
+                        cleanupSession(sessionId, true);
                     }, 5000);
                 }
                 
@@ -823,37 +1165,29 @@ ${channelStatus}
         try {
             const message = m.messages[0];
             
-            // Get the bot's JID in proper format
             const botJid = conn.user.id;
             const normalizedBotJid = botJid.includes(':') ? botJid.split(':')[0] + '@s.whatsapp.net' : botJid;
             
-            // Check if message is from the bot itself (owner)
             const isFromBot = message.key.fromMe || 
                               (message.key.participant && message.key.participant === normalizedBotJid) ||
                               (message.key.remoteJid && message.key.remoteJid === normalizedBotJid);
             
-            // Don't process messages sent by the bot unless they're from the owner account
             if (message.key.fromMe && !isFromBot) return;
             
             console.log(`📩 Received message from ${message.key.remoteJid}, fromMe: ${message.key.fromMe}, isFromBot: ${isFromBot}`);
             
-            // Handle all message types (private, group, newsletter)
             const from = message.key.remoteJid;
             
-            // Check if it's a newsletter message
             if (from.endsWith('@newsletter')) {
                 await handleMessage(conn, message, sessionId);
             } 
-            // Check if it's a group message
             else if (from.endsWith('@g.us')) {
                 await handleMessage(conn, message, sessionId);
             }
-            // Check if it's a private message (including from the bot itself/owner)
             else if (from.endsWith('@s.whatsapp.net') || isFromBot) {
                 await handleMessage(conn, message, sessionId);
             }
             
-            // Message printing for better debugging
             const messageType = getMessageType(message);
             let messageText = getMessageText(message, messageType);
             
@@ -891,7 +1225,6 @@ ${channelStatus}
         try {
             const msg = m.messages[0];
             if (!msg.key.fromMe && msg.key.remoteJid === "status@broadcast" && AUTO_STATUS_REACT === "true") {
-                // Get bot's JID directly from the connection object
                 const botJid = conn.user.id;
                 const emojis = ['❤️', '💸', '😇', '🍂', '💥', '💯', '🔥', '💫', '💎', '💗', '🤍', '🖤', '👀', '🙌', '🙆', '🚩', '🥰', '💐', '😎', '🤎', '✅', '🫀', '🧡', '😁', '😄', '🌸', '🕊️', '🌷', '⛅', '🌟', '🗿', '🇳🇬', '💜', '💙', '🌝', '🖤', '💚'];
                 const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
@@ -903,7 +1236,6 @@ ${channelStatus}
                     } 
                 }, { statusJidList: [msg.key.participant, botJid] });
                 
-                // Print status update in terminal with emoji
                 const timestamp = new Date().toLocaleTimeString();
                 console.log(`[${timestamp}] ✅ Auto-liked a status with ${randomEmoji} emoji`);
             }
@@ -956,11 +1288,9 @@ function cleanupSession(sessionId, deleteEntireFolder = false) {
     
     if (fs.existsSync(sessionDir)) {
         if (deleteEntireFolder) {
-            // ONLY delete if it's a logout (DisconnectReason.loggedOut)
             fs.rmSync(sessionDir, { recursive: true, force: true });
             console.log(`🗑️ Deleted session folder due to logout: ${sessionId}`);
         } else {
-            // Regular cleanup - DO NOT delete anything, just log
             console.log(`📁 Session preservation: Keeping all files for ${sessionId}`);
         }
     }
@@ -999,13 +1329,11 @@ setInterval(() => {
         const stats = fs.statSync(sessionPath);
         const age = now - stats.mtimeMs;
         
-        // Log session age but DO NOT DELETE anything
         if (age > 5 * 60 * 1000 && !activeConnections.has(session)) {
             console.log(`📊 Session ${session} is ${Math.round(age/60000)} minutes old - PRESERVED`);
-            // Intentionally do nothing - preserve all sessions
         }
     });
-}, 5 * 60 * 1000); // Run every 5 minutes but only for logging
+}, 5 * 60 * 1000);
 
 // Function to reload existing sessions on server restart
 async function reloadExistingSessions() {
@@ -1029,30 +1357,26 @@ async function reloadExistingSessions() {
             console.log(`🔄 Attempting to reload session: ${sessionId}`);
             
             try {
-                // Check if this session has valid auth state (creds.json)
                 const credsPath = path.join(sessionDir, "creds.json");
                 if (fs.existsSync(credsPath)) {
                     await initializeConnection(sessionId);
                     console.log(`✅ Successfully reloaded session: ${sessionId}`);
                     
-                    // Count this as an active socket but don't increment totalUsers
                     activeSockets++;
                     console.log(`📊 Active sockets increased to: ${activeSockets}`);
                 } else {
                     console.log(`❌ No valid auth state found for session: ${sessionId}`);
-                    // Clean up invalid session (only creds.json missing, keep folder)
                     console.log(`📁 Keeping session folder for potential reuse: ${sessionId}`);
                 }
             } catch (error) {
                 console.error(`❌ Failed to reload session ${sessionId}:`, error.message);
-                // Don't delete the session folder, keep it for manual inspection
                 console.log(`📁 Preserving session folder despite error: ${sessionId}`);
             }
         }
     }
     
     console.log("✅ Session reload process completed");
-    broadcastStats(); // Update stats after reloading all sessions
+    broadcastStats();
 }
 
 // Start the server
@@ -1062,7 +1386,6 @@ server.listen(port, async () => {
     console.log(`🔧 Loaded ${commands.size} commands`);
     console.log(`📊 Starting with ${totalUsers} total users (persistent)`);
     
-    // Reload existing sessions after server starts
     await reloadExistingSessions();
 });
 
@@ -1078,7 +1401,6 @@ function gracefulShutdown() {
   isShuttingDown = true;
   console.log("\n🛑 Shutting down RAMA-XMD MD server...");
   
-  // Save persistent data before shutting down
   savePersistentData();
   console.log(`💾 Saved persistent data: ${totalUsers} total users`);
   
