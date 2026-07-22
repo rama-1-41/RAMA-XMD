@@ -1228,13 +1228,17 @@ async function reloadExistingSessions() {
     
     const sessionsDir = path.join(__dirname, "sessions");
     
+    // Create sessions directory if it doesn't exist
     if (!fs.existsSync(sessionsDir)) {
-        console.log("📁 No sessions directory found, skipping session reload");
-        return;
+        fs.mkdirSync(sessionsDir, { recursive: true });
     }
     
+    // First, try to load from local files
     const sessions = fs.readdirSync(sessionsDir);
-    console.log(`📂 Found ${sessions.length} session directories`);
+    console.log(`📂 Found ${sessions.length} session directories locally`);
+    
+    const restoredSessions = new Set();
+    let restoredCount = 0;
     
     for (const sessionId of sessions) {
         const sessionDir = path.join(sessionsDir, sessionId);
@@ -1248,21 +1252,80 @@ async function reloadExistingSessions() {
                 if (fs.existsSync(credsPath)) {
                     await initializeConnection(sessionId);
                     console.log(`✅ Successfully reloaded session: ${sessionId}`);
-                    
+                    restoredCount++;
+                    restoredSessions.add(sessionId);
                     activeSockets++;
-                    console.log(`📊 Active sockets increased to: ${activeSockets}`);
                 } else {
-                    console.log(`❌ No valid auth state found for session: ${sessionId}`);
-                    console.log(`📁 Keeping session folder for potential reuse: ${sessionId}`);
+                    console.log(`❌ No creds.json found for ${sessionId}, checking MongoDB...`);
+                    // Try to restore from MongoDB
+                    const mongoSession = await loadSessionFromMongo(sessionId);
+                    if (mongoSession && mongoSession.creds) {
+                        console.log(`📥 Found session ${sessionId} in MongoDB, restoring...`);
+                        // Write files to local
+                        fs.writeFileSync(path.join(sessionDir, 'creds.json'), JSON.stringify(mongoSession.creds, null, 2));
+                        if (mongoSession.keys) {
+                            fs.writeFileSync(path.join(sessionDir, 'keys.json'), JSON.stringify(mongoSession.keys, null, 2));
+                        }
+                        await initializeConnection(sessionId);
+                        console.log(`✅ Successfully restored session: ${sessionId}`);
+                        restoredCount++;
+                        restoredSessions.add(sessionId);
+                        activeSockets++;
+                    } else {
+                        console.log(`❌ No session found for ${sessionId} in MongoDB`);
+                    }
                 }
             } catch (error) {
                 console.error(`❌ Failed to reload session ${sessionId}:`, error.message);
-                console.log(`📁 Preserving session folder despite error: ${sessionId}`);
             }
         }
     }
     
-    console.log("✅ Session reload process completed");
+    // Then, check MongoDB for sessions that don't have local folders
+    if (sessionsCol) {
+        try {
+            const mongoSessions = await sessionsCol.find({}).toArray();
+            console.log(`📂 Found ${mongoSessions.length} sessions in MongoDB`);
+            
+            for (const session of mongoSessions) {
+                const sessionId = session.number;
+                const sessionDir = path.join(sessionsDir, sessionId);
+                
+                // Skip if already loaded
+                if (restoredSessions.has(sessionId)) continue;
+                if (activeConnections.has(sessionId)) continue;
+                
+                // Check if local folder exists with creds
+                const credsPath = path.join(sessionDir, 'creds.json');
+                if (fs.existsSync(credsPath)) {
+                    continue; // Already handled above
+                }
+                
+                // Restore from MongoDB
+                console.log(`📥 Restoring session ${sessionId} from MongoDB (no local files)...`);
+                try {
+                    if (!fs.existsSync(sessionDir)) {
+                        fs.mkdirSync(sessionDir, { recursive: true });
+                    }
+                    fs.writeFileSync(credsPath, JSON.stringify(session.creds, null, 2));
+                    if (session.keys) {
+                        fs.writeFileSync(path.join(sessionDir, 'keys.json'), JSON.stringify(session.keys, null, 2));
+                    }
+                    await initializeConnection(sessionId);
+                    console.log(`✅ Successfully restored session: ${sessionId}`);
+                    restoredCount++;
+                    restoredSessions.add(sessionId);
+                    activeSockets++;
+                } catch (error) {
+                    console.error(`❌ Failed to restore session ${sessionId}:`, error.message);
+                }
+            }
+        } catch (error) {
+            console.error(`❌ Error checking MongoDB for sessions:`, error.message);
+        }
+    }
+    
+    console.log(`✅ Session reload complete. Restored ${restoredCount} sessions. Active sockets: ${activeSockets}`);
     broadcastStats();
 }
 
