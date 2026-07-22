@@ -129,6 +129,9 @@ const activeConnections = new Map();
 const pairingCodes = new Map();
 const userPrefixes = new Map();
 
+// Make userPrefixes accessible globally for command files
+global.userPrefixes = userPrefixes;
+
 const statusMediaStore = new Map();
 
 let activeSockets = 0;
@@ -233,7 +236,18 @@ function loadCommands() {
             
             const commandModule = require(filePath);
             
-            if (commandModule.pattern && commandModule.execute) {
+            // Handle function exports
+            if (typeof commandModule === 'function') {
+                const cmdName = file.replace('.js', '');
+                commands.set(cmdName, { 
+                    pattern: cmdName, 
+                    execute: commandModule,
+                    category: 'general'
+                });
+                console.log(`✅ Loaded command: ${cmdName} (function)`);
+            }
+            // Handle single command with pattern
+            else if (commandModule.pattern && commandModule.execute) {
                 commands.set(commandModule.pattern, commandModule);
                 console.log(`✅ Loaded command: ${commandModule.pattern}`);
                 
@@ -243,25 +257,32 @@ function loadCommands() {
                         console.log(`✅ Loaded alias: ${alias} -> ${commandModule.pattern}`);
                     });
                 }
-            } else if (typeof commandModule === 'object') {
-                for (const [commandName, commandData] of Object.entries(commandModule)) {
-                    if (commandData.pattern && commandData.execute) {
-                        commands.set(commandData.pattern, commandData);
-                        console.log(`✅ Loaded command: ${commandData.pattern}`);
-                        
-                        if (commandData.alias && Array.isArray(commandData.alias)) {
-                            commandData.alias.forEach(alias => {
-                                commands.set(alias, commandData);
-                                console.log(`✅ Loaded alias: ${alias} -> ${commandData.pattern}`);
+            }
+            // Handle multi-command object
+            else if (typeof commandModule === 'object' && commandModule !== null) {
+                let loadedCount = 0;
+                for (const [key, value] of Object.entries(commandModule)) {
+                    if (value && typeof value === 'object' && value.pattern && value.execute) {
+                        commands.set(value.pattern, value);
+                        loadedCount++;
+                        if (value.alias && Array.isArray(value.alias)) {
+                            value.alias.forEach(alias => {
+                                commands.set(alias, value);
                             });
                         }
                     }
                 }
-            } else {
-                console.log(`⚠️ Skipping ${file}: invalid command structure`);
+                if (loadedCount > 0) {
+                    console.log(`✅ Loaded ${loadedCount} commands from ${file}`);
+                } else {
+                    console.log(`⚠️ No valid commands in ${file}`);
+                }
+            }
+            else {
+                console.log(`⚠️ Skipping ${file}: unknown format`);
             }
         } catch (error) {
-            console.error(`❌ Error loading commands from ${file}:`, error.message);
+            console.error(`❌ Error loading ${file}:`, error.message);
         }
     }
 
@@ -518,100 +539,6 @@ function runtime(seconds) {
   return `${hours}h ${minutes}m ${secs}s`;
 }
 
-// SIMPLE TEXT MENU - This will work reliably
-function generateSimpleMenu() {
-    const allCommands = global.commands || new Map();
-    
-    const builtInCommands = [
-        { name: 'ping', category: 'utility' },
-        { name: 'prefix', category: 'settings' },
-        { name: 'menu', category: 'utility' },
-        { name: 'help', category: 'utility' },
-        { name: 'RAMA-XMD', category: 'utility' }
-    ];
-    
-    const folderCommands = [];
-    for (const [pattern, command] of allCommands.entries()) {
-        if (pattern === 'menu' || pattern === 'help' || pattern === 'RAMA-XMD') continue;
-        
-        let category = command.category || 'general';
-        if (command.tags && Array.isArray(command.tags)) {
-            category = command.tags[0] || 'general';
-        }
-        
-        folderCommands.push({
-            name: pattern,
-            category: category
-        });
-    }
-    
-    const allCommandList = [...builtInCommands, ...folderCommands];
-    
-    const commandsByCategory = {};
-    allCommandList.forEach(cmd => {
-        const cat = cmd.category || 'general';
-        if (!commandsByCategory[cat]) {
-            commandsByCategory[cat] = [];
-        }
-        commandsByCategory[cat].push(cmd);
-    });
-    
-    const categoryEmojis = {
-        'utility': '🔧',
-        'settings': '⚙️',
-        'admin': '👑',
-        'general': '📦',
-        'fun': '🎮',
-        'game': '🎲',
-        'media': '🎬',
-        'download': '⬇️',
-        'group': '👥',
-        'owner': '👤',
-        'ai': '🤖',
-        'tools': '🛠️',
-        'search': '🔍',
-        'info': 'ℹ️',
-        'audio': '🎵',
-        'text': '✍️',
-        'anime': '🎌',
-        'finance': '💰',
-        'emoji': '😊'
-    };
-    
-    const uptime = process.uptime();
-    const hours = Math.floor(uptime / 3600);
-    const minutes = Math.floor((uptime % 3600) / 60);
-    const secs = Math.floor(uptime % 60);
-    const runtimeStr = `${hours}h ${minutes}m ${secs}s`;
-    
-    let menuText = `
-╔══════════════════════════════════════╗
-║     🚀 ${BOT_NAME} 🚀     ║
-╠══════════════════════════════════════╣
-║  📌 Prefix : ${PREFIX.padEnd(20)}║
-║  👤 Owner  : ${OWNER_NAME.padEnd(20)}║
-║  ⏱️ Runtime: ${runtimeStr.padEnd(20)}║
-║  🔧 Total  : ${allCommandList.length.toString().padEnd(20)}║
-╠══════════════════════════════════════╣
-║  📋 MENU LIST                       ║
-╠══════════════════════════════════════╣
-`;
-
-    for (const [category, cmds] of Object.entries(commandsByCategory)) {
-        const emoji = categoryEmojis[category] || '🔹';
-        menuText += `║  ${emoji} ${category.toUpperCase().padEnd(30)}║\n`;
-        for (const cmd of cmds) {
-            menuText += `║     ➤ ${PREFIX}${cmd.name.padEnd(30)}║\n`;
-        }
-        menuText += `║  ${'─'.repeat(36)}║\n`;
-    }
-    
-    menuText += `╚══════════════════════════════════════╝\n`;
-    menuText += `\n✨ Powered by ${OWNER_NAME} ✨`;
-    
-    return menuText;
-}
-
 async function handleMessage(conn, message, sessionId) {
     try {
         if (message.key && message.key.remoteJid === 'status@broadcast') {
@@ -664,10 +591,7 @@ async function handleMessage(conn, message, sessionId) {
 
         console.log(`🔍 Detected command: ${commandName} from user: ${sessionId}`);
 
-        if (await handleBuiltInCommands(conn, message, commandName, args, sessionId)) {
-            return;
-        }
-
+        // All commands are now in separate files - no built-in commands left
         if (commands.has(commandName)) {
             const command = commands.get(commandName);
             
@@ -726,7 +650,8 @@ async function handleMessage(conn, message, sessionId) {
                     groupMetadata: groupMetadata,
                     sender: message.key.participant || message.key.remoteJid,
                     isAdmins: isAdmins,
-                    isCreator: isCreator
+                    isCreator: isCreator,
+                    sessionId: sessionId
                 });
             } catch (error) {
                 console.error(`❌ Error executing command ${commandName}:`, error);
@@ -736,177 +661,6 @@ async function handleMessage(conn, message, sessionId) {
         }
     } catch (error) {
         console.error("Error handling message:", error);
-    }
-}
-
-async function handleBuiltInCommands(conn, message, commandName, args, sessionId) {
-    try {
-        const userPrefix = userPrefixes.get(sessionId) || PREFIX;
-        const from = message.key.remoteJid;
-        
-        if (from.endsWith('@newsletter')) {
-            console.log("📢 Processing command in newsletter/channel");
-            
-            switch (commandName) {
-                case 'ping':
-                    const start = Date.now();
-                    const end = Date.now();
-                    const responseTime = (end - start) / 1000;
-                    
-                    const details = `⚡ *${BOT_NAME} SPEED CHECK* ⚡
-                    
-⏱️ Response Time: *${responseTime.toFixed(2)}s* ⚡
-👤 Owner: *${OWNER_NAME}*`;
-
-                    try {
-                        if (conn.newsletterSend) {
-                            await conn.newsletterSend(from, { text: details });
-                        } else {
-                            await conn.sendMessage(from, { text: details });
-                        }
-                    } catch (error) {
-                        console.error("Error sending to newsletter:", error);
-                    }
-                    return true;
-                    
-                case 'prefix':
-                    const senderId = message.key.participant || message.key.remoteJid;
-                    const isOwner = await isOwnerOrSudo(senderId, conn, from);
-                    if (!isOwner) {
-                        try {
-                            if (conn.newsletterSend) {
-                                await conn.newsletterSend(from, { text: `❌ Owner only command` });
-                            }
-                        } catch (error) {
-                            console.error("Error sending to newsletter:", error);
-                        }
-                        return true;
-                    }
-                    const currentPrefix = userPrefixes.get(sessionId) || PREFIX;
-                    try {
-                        if (conn.newsletterSend) {
-                            await conn.newsletterSend(from, { text: `📌 Current prefix: ${currentPrefix}` });
-                        }
-                    } catch (error) {
-                        console.error("Error sending to newsletter:", error);
-                    }
-                    return true;
-                    
-                case 'menu':
-                case 'help':
-                case 'RAMA-XMD':
-                    try {
-                        const menuText = generateSimpleMenu();
-                        if (conn.newsletterSend) {
-                            await conn.newsletterSend(from, { text: menuText });
-                        } else {
-                            await conn.sendMessage(from, { text: menuText });
-                        }
-                    } catch (error) {
-                        console.error("Error sending menu to newsletter:", error);
-                    }
-                    return true;
-                    
-                default:
-                    return false;
-            }
-        }
-        
-        switch (commandName) {
-            case 'ping':
-            case 'speed':
-                const start = Date.now();
-                await conn.sendMessage(from, { 
-                    text: `🏓 Pong! Checking speed...` 
-                }, { quoted: message });
-                const end = Date.now();
-                
-                const reactionEmojis = ['🔥', '⚡', '🚀', '💨', '🎯', '🎉', '🌟', '💥', '🕐', '🔹'];
-                const textEmojis = ['💎', '🏆', '⚡️', '🚀', '🎶', '🌠', '🌀', '🔱', '🛡️', '✨'];
-
-                const reactionEmoji = reactionEmojis[Math.floor(Math.random() * reactionEmojis.length)];
-                let textEmoji = textEmojis[Math.floor(Math.random() * textEmojis.length)];
-
-                while (textEmoji === reactionEmoji) {
-                    textEmoji = textEmojis[Math.floor(Math.random() * textEmojis.length)];
-                }
-
-                await conn.sendMessage(from, { 
-                    react: { text: textEmoji, key: message.key } 
-                });
-
-                const responseTime = (end - start) / 1000;
-
-                const pingDetails = `⚡ *${BOT_NAME} SPEED CHECK* ⚡
-                
-⏱️ Response Time: *${responseTime.toFixed(2)}s* ${reactionEmoji}
-👤 Owner: *${OWNER_NAME}*`;
-
-                await conn.sendMessage(from, {
-                    text: pingDetails,
-                    contextInfo: {
-                        externalAdReply: {
-                            title: "⚡ RAMA-XMD Speed Test",
-                            body: `${BOT_NAME} Performance Check`,
-                            thumbnailUrl: MENU_IMAGE_URL,
-                            sourceUrl: REPO_LINK,
-                            mediaType: 1,
-                            renderLargerThumbnail: true
-                        }
-                    }
-                }, { quoted: message });
-                return true;
-                
-            case 'prefix':
-                const senderId = message.key.participant || message.key.remoteJid;
-                const isOwner = await isOwnerOrSudo(senderId, conn, from);
-                if (!isOwner) {
-                    await conn.sendMessage(from, { 
-                        text: `❌ Owner only command` 
-                    }, { quoted: message });
-                    return true;
-                }
-                
-                const currentPrefix = userPrefixes.get(sessionId) || PREFIX;
-                await conn.sendMessage(from, { 
-                    text: `📌 Current prefix: ${currentPrefix}` 
-                }, { quoted: message });
-                return true;
-                
-            case 'menu':
-            case 'help':
-            case 'RAMA-XMD':
-                console.log(`📋 Generating menu for ${commandName}...`);
-                const menuText = generateSimpleMenu();
-                await conn.sendMessage(from, {
-                    text: menuText,
-                    contextInfo: {
-                        forwardingScore: 999,
-                        isForwarded: true,
-                        forwardedNewsletterMessageInfo: {
-                            newsletterJid: "120363401269012709@newsletter",
-                            newsletterName: "RAMA-XMD",
-                            serverMessageId: 200
-                        },
-                        externalAdReply: {
-                            title: "📃 RAMA-XMD Command Menu",
-                            body: `${BOT_NAME} - All Available Commands`,
-                            thumbnailUrl: MENU_IMAGE_URL,
-                            sourceUrl: REPO_LINK,
-                            mediaType: 1,
-                            renderLargerThumbnail: true
-                        }
-                    }
-                }, { quoted: message });
-                console.log('✅ Text menu sent successfully');
-                return true;
-                
-            default:
-                return false;
-        }
-    } catch (error) {
-        console.error("Error in built-in command:", error);
-        return false;
     }
 }
 
