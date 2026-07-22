@@ -81,7 +81,6 @@ async function menuCommand(conn, message, m, options) {
     // ========== GET IMAGE FROM URL ==========
     let imageBuffer = null;
     try {
-      // Try to download from URL
       const response = await axios.get(MENU_IMAGE_URL, { 
         responseType: 'arraybuffer', 
         timeout: 10000 
@@ -89,17 +88,7 @@ async function menuCommand(conn, message, m, options) {
       imageBuffer = Buffer.from(response.data);
       console.log('📸 Menu image loaded from URL');
     } catch (error) {
-      console.log('📸 Failed to load image from URL, trying local assets...');
-      // Fallback to local assets
-      try {
-        const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
-        if (fs.existsSync(imagePath)) {
-          imageBuffer = fs.readFileSync(imagePath);
-          console.log('📸 Menu image loaded from assets');
-        }
-      } catch (localError) {
-        console.log('📸 No menu image found');
-      }
+      console.log('📸 Failed to load image from URL');
     }
 
     async function getImageMessage(buffer) {
