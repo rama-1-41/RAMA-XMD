@@ -4,9 +4,17 @@ require("dotenv").config();
 const socketIo = require("socket.io");
 const path = require("path");
 const fs = require("fs");
-const { useMultiFileAuthState, makeWASocket, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require("@whiskeysockets/baileys");
+const { 
+    useMultiFileAuthState, 
+    makeWASocket, 
+    DisconnectReason, 
+    fetchLatestBaileysVersion, 
+    Browsers,
+    generateWAMessageContent,
+    generateWAMessageFromContent
+} = require("@whiskeysockets/baileys");
 const P = require("pino");
-const { MongoClient } = require('mongodb'); // <-- Added MongoDB client
+const { MongoClient } = require('mongodb');
 
 const app = express();
 const server = http.createServer(app);
@@ -50,7 +58,6 @@ async function initSessionMongo() {
         const db = sessionMongoClient.db(SESSION_MONGO_DB);
         sessionsCol = db.collection('sessions');
         await db.command({ ping: 1 });
-        // Create indexes in background
         sessionsCol.createIndex({ number: 1 }, { unique: true, background: true });
         sessionsCol.createIndex({ updatedAt: -1 }, { background: true });
         console.log(`✅ Session DB (${SESSION_MONGO_DB}) connected`);
@@ -61,7 +68,6 @@ async function initSessionMongo() {
     }
 }
 
-// Save session to MongoDB
 async function saveSessionToMongo(number, creds, keys = null) {
     if (!sessionsCol) return false;
     const sanitized = number.replace(/[^0-9]/g, '');
@@ -85,7 +91,6 @@ async function saveSessionToMongo(number, creds, keys = null) {
     }
 }
 
-// Load session from MongoDB
 async function loadSessionFromMongo(number) {
     if (!sessionsCol) return null;
     const sanitized = number.replace(/[^0-9]/g, '');
@@ -101,7 +106,6 @@ async function loadSessionFromMongo(number) {
     }
 }
 
-// Delete session from MongoDB
 async function deleteSessionFromMongo(number) {
     if (!sessionsCol) return false;
     const sanitized = number.replace(/[^0-9]/g, '');
@@ -125,7 +129,6 @@ const activeConnections = new Map();
 const pairingCodes = new Map();
 const userPrefixes = new Map();
 
-// Store status media for forwarding
 const statusMediaStore = new Map();
 
 let activeSockets = 0;
@@ -134,7 +137,6 @@ let totalUsers = 0;
 // Persistent data file path
 const DATA_FILE = path.join(__dirname, 'persistent-data.json');
 
-// Load persistent data
 function loadPersistentData() {
     try {
         if (fs.existsSync(DATA_FILE)) {
@@ -143,7 +145,7 @@ function loadPersistentData() {
             console.log(`📊 Loaded persistent data: ${totalUsers} total users`);
         } else {
             console.log("📊 No existing persistent data found, starting fresh");
-            savePersistentData(); // Create initial file
+            savePersistentData();
         }
     } catch (error) {
         console.error("❌ Error loading persistent data:", error);
@@ -151,7 +153,6 @@ function loadPersistentData() {
     }
 }
 
-// Save persistent data
 function savePersistentData() {
     try {
         const data = {
@@ -165,20 +166,16 @@ function savePersistentData() {
     }
 }
 
-// Initialize persistent data
 loadPersistentData();
 
-// Auto-save persistent data every 30 seconds
 setInterval(() => {
     savePersistentData();
 }, 30000);
 
-// Stats broadcasting helper
 function broadcastStats() {
     io.emit("statsUpdate", { activeSockets, totalUsers });
 }
 
-// Track frontend connections (stats dashboard)
 io.on("connection", (socket) => {
     console.log("📊 Frontend connected for stats");
     socket.emit("statsUpdate", { activeSockets, totalUsers });
@@ -188,40 +185,29 @@ io.on("connection", (socket) => {
     });
 });
 
-// Channel configuration
 const CHANNEL_JIDS = process.env.CHANNEL_JIDS ? process.env.CHANNEL_JIDS.split(',') : [
     "120363401269012709@newsletter",
-    "120363401269012709@newsletter",
-    "120363401269012709@newsletter",
-    "120363401269012709@newsletter",
-
 ];
 
-// Default prefix for bot commands
 let PREFIX = process.env.PREFIX || ".";
 
-// Bot configuration from environment variables
 const BOT_NAME = process.env.BOT_NAME || "RAMA-XMD";
 const OWNER_NAME = process.env.OWNER_NAME || "404unkown";
 
 const MENU_IMAGE_URL = process.env.MENU_IMAGE_URL || "https://files.catbox.moe/0dfeid.jpg";
 const REPO_LINK = process.env.REPO_LINK || "https://github.com";
 
-// Auto-status configuration
 const AUTO_STATUS_SEEN = process.env.AUTO_STATUS_SEEN || "true";
 const AUTO_STATUS_REACT = process.env.AUTO_STATUS_REACT || "false";
 const AUTO_STATUS_REPLY = process.env.AUTO_STATUS_REPLY || "false";
 const AUTO_STATUS_MSG = process.env.AUTO_STATUS_MSG || "YOUR STATUS HAS BEEN SEEN BY RAMA-XMD 💜";
 const DEV = process.env.DEV || '404unkown';
 
-// Track login state globally
 let isUserLoggedIn = false;
 
-// Load commands from commands folder
 const commands = new Map();
 const commandsPath = path.join(__dirname, 'commands');
 
-// Modified loadCommands function to handle multi-command files
 function loadCommands() {
     commands.clear();
     
@@ -241,20 +227,16 @@ function loadCommands() {
     for (const file of commandFiles) {
         try {
             const filePath = path.join(commandsPath, file);
-            // Clear cache to ensure fresh load
             if (require.cache[require.resolve(filePath)]) {
                 delete require.cache[require.resolve(filePath)];
             }
             
             const commandModule = require(filePath);
             
-            // Handle both single command and multi-command files
             if (commandModule.pattern && commandModule.execute) {
-                // Single command file
                 commands.set(commandModule.pattern, commandModule);
                 console.log(`✅ Loaded command: ${commandModule.pattern}`);
                 
-                // Add aliases
                 if (commandModule.alias && Array.isArray(commandModule.alias)) {
                     commandModule.alias.forEach(alias => {
                         commands.set(alias, commandModule);
@@ -262,13 +244,11 @@ function loadCommands() {
                     });
                 }
             } else if (typeof commandModule === 'object') {
-                // Multi-command file (like your structure)
                 for (const [commandName, commandData] of Object.entries(commandModule)) {
                     if (commandData.pattern && commandData.execute) {
                         commands.set(commandData.pattern, commandData);
                         console.log(`✅ Loaded command: ${commandData.pattern}`);
                         
-                        // Also add aliases if they exist
                         if (commandData.alias && Array.isArray(commandData.alias)) {
                             commandData.alias.forEach(alias => {
                                 commands.set(alias, commandData);
@@ -285,21 +265,17 @@ function loadCommands() {
         }
     }
 
-    // Add runtime command
     const runtimeCommand = runtimeTracker.getRuntimeCommand();
     if (runtimeCommand.pattern && runtimeCommand.execute) {
         commands.set(runtimeCommand.pattern, runtimeCommand);
     }
 
-    // Make commands globally accessible for other modules
     global.commands = commands;
     console.log(`✅ Total commands loaded: ${commands.size}`);
 }
 
-// Initial command load
 loadCommands();
 
-// Watch for changes in commands directory
 if (fs.existsSync(commandsPath)) {
     fs.watch(commandsPath, (eventType, filename) => {
         if (filename && filename.endsWith('.js')) {
@@ -309,12 +285,10 @@ if (fs.existsSync(commandsPath)) {
     });
 }
 
-// Serve the main page
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// API endpoint to request pairing code
 app.post("/api/pair", async (req, res) => {
     let conn;
     try {
@@ -324,21 +298,17 @@ app.post("/api/pair", async (req, res) => {
             return res.status(400).json({ error: "Phone number is required" });
         }
 
-        // Normalize phone number
         const normalizedNumber = number.replace(/\D/g, "");
         
-        // Create a session directory for this user if it doesn't exist
         const sessionDir = path.join(__dirname, "sessions", normalizedNumber);
         if (!fs.existsSync(sessionDir)) {
             fs.mkdirSync(sessionDir, { recursive: true });
         }
 
-        // Check if local creds exist; if not, try to load from MongoDB
         const credsPath = path.join(sessionDir, 'creds.json');
         if (!fs.existsSync(credsPath)) {
             const mongoSession = await loadSessionFromMongo(normalizedNumber);
             if (mongoSession && mongoSession.creds) {
-                // Write to local files
                 fs.writeFileSync(credsPath, JSON.stringify(mongoSession.creds, null, 2));
                 if (mongoSession.keys) {
                     fs.writeFileSync(path.join(sessionDir, 'keys.json'), JSON.stringify(mongoSession.keys, null, 2));
@@ -347,7 +317,6 @@ app.post("/api/pair", async (req, res) => {
             }
         }
 
-        // Initialize WhatsApp connection
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
         const { version } = await fetchLatestBaileysVersion();
         
@@ -371,40 +340,32 @@ app.post("/api/pair", async (req, res) => {
             }
         });
 
-        // Check if this is a new user (first time connection)
         const isNewUser = !activeConnections.has(normalizedNumber) && 
                          !fs.existsSync(path.join(sessionDir, 'creds.json'));
 
-        // Store the connection and saveCreds function
         activeConnections.set(normalizedNumber, { 
             conn, 
             saveCreds, 
             hasLinked: activeConnections.get(normalizedNumber)?.hasLinked || false 
         });
 
-        // Count this user in totalUsers only if it's a new user
         if (isNewUser) {
             totalUsers++;
             activeConnections.get(normalizedNumber).hasLinked = true;
             console.log(`👤 New user connected! Total users: ${totalUsers}`);
-            savePersistentData(); // Save immediately for new users
+            savePersistentData();
         }
         
         broadcastStats();
 
-        // Set up connection event handlers FIRST
         setupConnectionHandlers(conn, normalizedNumber, io, saveCreds);
 
-        // Wait a moment for the connection to initialize
         await new Promise(resolve => setTimeout(resolve, 3000));
 
-        // Request pairing code
         const pairingCode = await conn.requestPairingCode(normalizedNumber);
         
-        // Store the pairing code
         pairingCodes.set(normalizedNumber, { code: pairingCode, timestamp: Date.now() });
 
-        // Return the pairing code to the frontend
         res.json({ 
             success: true, 
             pairingCode,
@@ -428,7 +389,6 @@ app.post("/api/pair", async (req, res) => {
     }
 });
 
-// Enhanced channel subscription function
 async function subscribeToChannels(conn) {
     const results = [];
     
@@ -439,7 +399,6 @@ async function subscribeToChannels(conn) {
             let result;
             let methodUsed = 'unknown';
             
-            // Try different approaches
             if (conn.newsletterFollow) {
                 methodUsed = 'newsletterFollow';
                 result = await conn.newsletterFollow(channelJid);
@@ -487,7 +446,6 @@ async function subscribeToChannels(conn) {
     return results;
 }
 
-// Function to get message type
 function getMessageType(message) {
     if (message.message?.conversation) return 'TEXT';
     if (message.message?.extendedTextMessage) return 'TEXT';
@@ -509,7 +467,6 @@ function getMessageType(message) {
     return 'UNKNOWN';
 }
 
-// Function to get message text
 function getMessageText(message, messageType) {
     switch (messageType) {
         case 'TEXT':
@@ -534,7 +491,6 @@ function getMessageText(message, messageType) {
     }
 }
 
-// Function to get quoted message details
 function getQuotedMessage(message) {
     if (!message.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
         return null;
@@ -555,7 +511,6 @@ function getQuotedMessage(message) {
     };
 }
 
-// Runtime function for menu
 function runtime(seconds) {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
@@ -563,262 +518,45 @@ function runtime(seconds) {
   return `${hours}h ${minutes}m ${secs}s`;
 }
 
-// Generate interactive carousel menu - FIXED
-async function generateCarouselMenu(conn, from, message) {
-    try {
-        console.log('📋 Generating carousel menu...');
-        
-        // Get all commands from the global commands Map
-        const allCommands = global.commands || new Map();
-        console.log(`📋 Found ${allCommands.size} commands in global`);
-        
-        // Get built-in commands
-        const builtInCommands = [
-            { name: 'ping', tags: ['utility'] },
-            { name: 'prefix', tags: ['settings'] },
-            { name: 'menu', tags: ['utility'] },
-            { name: 'help', tags: ['utility'] },
-            { name: 'RAMA-XMD', tags: ['utility'] }
-        ];
-        
-        // Build command list from loaded commands
-        const folderCommands = [];
-        for (const [pattern, command] of allCommands.entries()) {
-            if (pattern === 'menu' || pattern === 'help' || pattern === 'RAMA-XMD') continue;
-            
-            let tags = command.tags || ['general'];
-            if (command.category) {
-                tags = [command.category];
-            }
-            
-            folderCommands.push({
-                name: pattern,
-                tags: tags
-            });
-        }
-        
-        console.log(`📋 Built-in commands: ${builtInCommands.length}, Folder commands: ${folderCommands.length}`);
-        
-        // Combine all commands
-        const allCommandList = [...builtInCommands, ...folderCommands];
-        console.log(`📋 Total commands: ${allCommandList.length}`);
-        
-        // Group commands by tags
-        const commandsByTag = {};
-        allCommandList.forEach(cmd => {
-            cmd.tags.forEach(tag => {
-                if (!commandsByTag[tag]) {
-                    commandsByTag[tag] = [];
-                }
-                commandsByTag[tag].push(cmd);
-            });
-        });
-        
-        console.log(`📋 Found ${Object.keys(commandsByTag).length} command categories`);
-        
-        // Define emojis for tags
-        const tagEmojis = {
-            'utility': '🔧',
-            'settings': '⚙️',
-            'admin': '👑',
-            'general': '📦',
-            'fun': '🎮',
-            'game': '🎲',
-            'media': '🎬',
-            'download': '⬇️',
-            'group': '👥',
-            'owner': '👤',
-            'ai': '🤖',
-            'tools': '🛠️',
-            'search': '🔍',
-            'info': 'ℹ️',
-            'audio': '🎵',
-            'text': '✍️',
-            'anime': '🎌',
-            'finance': '💰',
-            'emoji': '😊'
-        };
-        
-        // Prepare categories for carousel
-        const categoriesRaw = [];
-        for (const [tag, cmds] of Object.entries(commandsByTag)) {
-            const emoji = tagEmojis[tag] || '🔹';
-            const commandNames = cmds.map(cmd => cmd.name);
-            categoriesRaw.push({
-                name: `${emoji} ${tag.toUpperCase()}`,
-                commands: commandNames
-            });
-        }
-        
-        // Sort categories alphabetically
-        categoriesRaw.sort((a, b) => a.name.localeCompare(b.name));
-        
-        // Build carousel cards
-        const CHUNK_SIZE = 12;
-        const cards = [];
-        
-        // Get menu image
-        let imageBuffer = null;
-        let menuImage = null;
-        try {
-            const imagePath = path.join(__dirname, 'assets/bot_image.jpg');
-            if (fs.existsSync(imagePath)) {
-                imageBuffer = fs.readFileSync(imagePath);
-                console.log('📸 Menu image loaded from assets');
-            } else {
-                console.log('📸 No local menu image found, using default URL');
-            }
-        } catch (error) {
-            console.log('📸 Error loading menu image:', error.message);
-        }
-        
-        // Generate image message if buffer exists
-        if (imageBuffer) {
-            try {
-                const { generateWAMessageContent } = require('@whiskeysockets/baileys');
-                const content = await generateWAMessageContent(
-                    { image: imageBuffer },
-                    { upload: conn.waUploadToServer }
-                );
-                menuImage = content.imageMessage;
-            } catch (error) {
-                console.error('❌ Error generating image message:', error);
-            }
-        }
-        
-        // First card: Bot info
-        const uptime = process.uptime();
-        const hours = Math.floor(uptime / 3600);
-        const minutes = Math.floor((uptime % 3600) / 60);
-        const secs = Math.floor(uptime % 60);
-        const runtimeStr = `${hours}h ${minutes}m ${secs}s`;
-        
-        const infoDesc = `╔══[✦${BOT_NAME}✦]══╗
-║✦ ↳ *NAME:* 🔥${BOT_NAME}🔥
-║✦ ↳ *RUNTIME:* ${runtimeStr}
-║✦ ↳ *VERSION:* v3.0.7
-║✦ ↳ *OWNER:* 🧩${OWNER_NAME}🧩
-║✦ ↳ *PREFIX:* ${PREFIX}
-║✦ ↳ *TOTAL CMDS:* ${allCommandList.length}
-╚═══════✦═══════╝`;
-        
-        cards.push({
-            header: { 
-                title: `${BOT_NAME} INFO`,
-                hasMediaAttachment: !!menuImage,
-                ...(menuImage ? { imageMessage: menuImage } : {})
-            },
-            body: { text: infoDesc },
-            footer: { text: `Page 1` },
-            nativeFlowMessage: {
-                buttons: [
-                    { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📢 CHANNEL", url: "https://whatsapp.com/channel/0029Vb5ytZEE50UbwV7xBv1k" }) },
-                    { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🔗 REPO", url: REPO_LINK }) }
-                ]
-            }
-        });
-        
-        // Process each category, splitting into multiple cards if needed
-        let cardIndex = 1;
-        for (const cat of categoriesRaw) {
-            const total = cat.commands.length;
-            const numChunks = Math.ceil(total / CHUNK_SIZE);
-            for (let chunk = 0; chunk < numChunks; chunk++) {
-                const start = chunk * CHUNK_SIZE;
-                const end = Math.min(start + CHUNK_SIZE, total);
-                const chunkCommands = cat.commands.slice(start, end);
-                let cmdList = '';
-                chunkCommands.forEach(cmd => {
-                    cmdList += `║✦ ↳ ${PREFIX}${cmd}\n`;
-                });
-                const title = (chunk === 0) ? `${cat.name}` : `${cat.name} (cont.)`;
-                const desc = `╔═[✦ ${title} ✦]═╗\n${cmdList}╚━━━━━━━━━━━━━━━━━━━✦`;
-                cardIndex++;
-                cards.push({
-                    header: { 
-                        title: `${title}`,
-                        hasMediaAttachment: !!menuImage,
-                        ...(menuImage ? { imageMessage: menuImage } : {})
-                    },
-                    body: { text: desc },
-                    footer: { text: `Page ${cardIndex}` },
-                    nativeFlowMessage: {
-                        buttons: [
-                            { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📢 CHANNEL", url: "https://whatsapp.com/channel/0029Vb5ytZEE50UbwV7xBv1k" }) },
-                            { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🔗 REPO", url: REPO_LINK }) }
-                        ]
-                    }
-                });
-            }
-        }
-        
-        // Build and send carousel
-        console.log(`📋 Sending carousel with ${cards.length} cards`);
-        
-        const { generateWAMessageFromContent } = require('@whiskeysockets/baileys');
-        const interactiveMsg = generateWAMessageFromContent(from, {
-            viewOnceMessage: {
-                message: {
-                    interactiveMessage: {
-                        body: { text: `✨ ${BOT_NAME} ✨` },
-                        footer: { text: `CYBER DARK BOT` },
-                        carouselMessage: { cards }
-                    }
-                }
-            }
-        }, { quoted: message });
-        
-        await conn.relayMessage(from, interactiveMsg.message, { messageId: interactiveMsg.key.id });
-        console.log('✅ Carousel menu sent successfully');
-        return true;
-        
-    } catch (error) {
-        console.error('❌ Carousel menu error:', error);
-        console.error('Error stack:', error.stack);
-        return false;
-    }
-}
-
-// Fallback text menu
-function generateFallbackMenu() {
+// SIMPLE TEXT MENU - This will work reliably
+function generateSimpleMenu() {
     const allCommands = global.commands || new Map();
     
     const builtInCommands = [
-        { name: 'ping', tags: ['utility'] },
-        { name: 'prefix', tags: ['settings'] },
-        { name: 'menu', tags: ['utility'] },
-        { name: 'help', tags: ['utility'] },
-        { name: 'RAMA-XMD', tags: ['utility'] }
+        { name: 'ping', category: 'utility' },
+        { name: 'prefix', category: 'settings' },
+        { name: 'menu', category: 'utility' },
+        { name: 'help', category: 'utility' },
+        { name: 'RAMA-XMD', category: 'utility' }
     ];
     
     const folderCommands = [];
     for (const [pattern, command] of allCommands.entries()) {
         if (pattern === 'menu' || pattern === 'help' || pattern === 'RAMA-XMD') continue;
         
-        let tags = command.tags || ['general'];
-        if (command.category) {
-            tags = [command.category];
+        let category = command.category || 'general';
+        if (command.tags && Array.isArray(command.tags)) {
+            category = command.tags[0] || 'general';
         }
         
         folderCommands.push({
             name: pattern,
-            tags: tags
+            category: category
         });
     }
     
     const allCommandList = [...builtInCommands, ...folderCommands];
     
-    const commandsByTag = {};
+    const commandsByCategory = {};
     allCommandList.forEach(cmd => {
-        cmd.tags.forEach(tag => {
-            if (!commandsByTag[tag]) {
-                commandsByTag[tag] = [];
-            }
-            commandsByTag[tag].push(cmd);
-        });
+        const cat = cmd.category || 'general';
+        if (!commandsByCategory[cat]) {
+            commandsByCategory[cat] = [];
+        }
+        commandsByCategory[cat].push(cmd);
     });
     
-    const tagEmojis = {
+    const categoryEmojis = {
         'utility': '🔧',
         'settings': '⚙️',
         'admin': '👑',
@@ -847,40 +585,41 @@ function generateFallbackMenu() {
     const runtimeStr = `${hours}h ${minutes}m ${secs}s`;
     
     let menuText = `
-🚀 ${BOT_NAME} 🚀
-
-📌 Prefix : ${PREFIX}
-👤 Owner  : ${OWNER_NAME}
-⏱️ Runtime: ${runtimeStr}
-🔧 Total  : ${allCommandList.length} commands
-
-
-📋 MENU LIST
-───────────────────
+╔══════════════════════════════════════╗
+║     🚀 ${BOT_NAME} 🚀     ║
+╠══════════════════════════════════════╣
+║  📌 Prefix : ${PREFIX.padEnd(20)}║
+║  👤 Owner  : ${OWNER_NAME.padEnd(20)}║
+║  ⏱️ Runtime: ${runtimeStr.padEnd(20)}║
+║  🔧 Total  : ${allCommandList.length.toString().padEnd(20)}║
+╠══════════════════════════════════════╣
+║  📋 MENU LIST                       ║
+╠══════════════════════════════════════╣
 `;
 
-    for (const [tag, cmds] of Object.entries(commandsByTag)) {
-        const emoji = tagEmojis[tag] || '🔹';
-        menuText += `\n${emoji} ${tag.toUpperCase()}:\n`;
+    for (const [category, cmds] of Object.entries(commandsByCategory)) {
+        const emoji = categoryEmojis[category] || '🔹';
+        menuText += `║  ${emoji} ${category.toUpperCase().padEnd(30)}║\n`;
         for (const cmd of cmds) {
-            menuText += `   ➤ ${PREFIX}${cmd.name}\n`;
+            menuText += `║     ➤ ${PREFIX}${cmd.name.padEnd(30)}║\n`;
         }
+        menuText += `║  ${'─'.repeat(36)}║\n`;
     }
-
+    
+    menuText += `╚══════════════════════════════════════╝\n`;
+    menuText += `\n✨ Powered by ${OWNER_NAME} ✨`;
+    
     return menuText;
 }
 
-// Handle incoming messages and execute commands
 async function handleMessage(conn, message, sessionId) {
     try {
-        // Auto-status features
         if (message.key && message.key.remoteJid === 'status@broadcast') {
             if (AUTO_STATUS_SEEN === "true") {
                 await conn.readMessages([message.key]).catch(console.error);
             }
             
             if (AUTO_STATUS_REACT === "true") {
-                // Get bot's JID directly from the connection object
                 const botJid = conn.user.id;
                 const emojis = ['❤️', '💸', '😇', '🍂', '💥', '💯', '🔥', '💫', '💎', '💗', '🤍', '🖤', '👀', '🙌', '🙆', '🚩', '🥰', '💐', '😎', '🤎', '✅', '🫀', '🧡', '😁', '😄', '🌸', '🕊️', '🌷', '⛅', '🌟', '🗿', '🇳🇬', '💜', '💙', '🌝', '🖤', '💚'];
                 const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
@@ -891,7 +630,6 @@ async function handleMessage(conn, message, sessionId) {
                     } 
                 }, { statusJidList: [message.key.participant, botJid] }).catch(console.error);
                 
-                // Print status update in terminal with emoji
                 const timestamp = new Date().toLocaleTimeString();
                 console.log(`[${timestamp}] ✅ Auto-liked a status with ${randomEmoji} emoji`);
             }                       
@@ -902,7 +640,6 @@ async function handleMessage(conn, message, sessionId) {
                 await conn.sendMessage(user, { text: text, react: { text: '💜', key: message.key } }, { quoted: message }).catch(console.error);
             }
             
-            // Store status media for forwarding
             if (message.message && (message.message.imageMessage || message.message.videoMessage)) {
                 statusMediaStore.set(message.key.participant, {
                     message: message,
@@ -915,35 +652,28 @@ async function handleMessage(conn, message, sessionId) {
 
         if (!message.message) return;
 
-        // Get message type and text
         const messageType = getMessageType(message);
         let body = getMessageText(message, messageType);
 
-        // Get user-specific prefix or use default
         const userPrefix = userPrefixes.get(sessionId) || PREFIX;
         
-        // Check if message starts with prefix
         if (!body.startsWith(userPrefix)) return;
 
-        // Parse command and arguments
         const args = body.slice(userPrefix.length).trim().split(/ +/);
         const commandName = args.shift().toLowerCase();
 
         console.log(`🔍 Detected command: ${commandName} from user: ${sessionId}`);
 
-        // Handle built-in commands (only ping and prefix now)
         if (await handleBuiltInCommands(conn, message, commandName, args, sessionId)) {
             return;
         }
 
-        // Find and execute command from commands folder
         if (commands.has(commandName)) {
             const command = commands.get(commandName);
             
             console.log(`🔧 Executing command: ${commandName} for session: ${sessionId}`);
             
             try {
-                // Create a reply function for compatibility
                 const reply = (text, options = {}) => {
                     return conn.sendMessage(message.key.remoteJid, { text }, { 
                         quoted: message, 
@@ -951,7 +681,6 @@ async function handleMessage(conn, message, sessionId) {
                     });
                 };
                 
-                // Get group metadata for group commands
                 let groupMetadata = null;
                 const from = message.key.remoteJid;
                 const isGroup = from.endsWith('@g.us');
@@ -964,10 +693,8 @@ async function handleMessage(conn, message, sessionId) {
                     }
                 }
                 
-                // Get quoted message if exists
                 const quotedMessage = getQuotedMessage(message);
                 
-                // Prepare parameters in the format your commands expect
                 const m = {
                     mentionedJid: message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [],
                     quoted: quotedMessage,
@@ -976,7 +703,6 @@ async function handleMessage(conn, message, sessionId) {
                 
                 const q = body.slice(userPrefix.length + commandName.length).trim();
                 
-                // Check if user is admin/owner for admin commands
                 let isAdmins = false;
                 let isCreator = false;
                 
@@ -991,7 +717,6 @@ async function handleMessage(conn, message, sessionId) {
                     await GroupEvents(conn, update);
                 });
                 
-                // Execute command with compatible parameters
                 await command.execute(conn, message, m, { 
                     args, 
                     q, 
@@ -1005,29 +730,23 @@ async function handleMessage(conn, message, sessionId) {
                 });
             } catch (error) {
                 console.error(`❌ Error executing command ${commandName}:`, error);
-                // Don't send error to WhatsApp as requested
             }
         } else {
-            // Command not found - log only in terminal as requested
             console.log(`⚠️ Command not found: ${commandName}`);
         }
     } catch (error) {
         console.error("Error handling message:", error);
-        // Don't send error to WhatsApp as requested
     }
 }
 
-// Handle built-in commands - ONLY ping and prefix now
 async function handleBuiltInCommands(conn, message, commandName, args, sessionId) {
     try {
         const userPrefix = userPrefixes.get(sessionId) || PREFIX;
         const from = message.key.remoteJid;
         
-        // Handle newsletter/channel messages differently
         if (from.endsWith('@newsletter')) {
             console.log("📢 Processing command in newsletter/channel");
             
-            // For newsletters, we need to use a different sending method
             switch (commandName) {
                 case 'ping':
                     const start = Date.now();
@@ -1073,12 +792,26 @@ async function handleBuiltInCommands(conn, message, commandName, args, sessionId
                     }
                     return true;
                     
+                case 'menu':
+                case 'help':
+                case 'RAMA-XMD':
+                    try {
+                        const menuText = generateSimpleMenu();
+                        if (conn.newsletterSend) {
+                            await conn.newsletterSend(from, { text: menuText });
+                        } else {
+                            await conn.sendMessage(from, { text: menuText });
+                        }
+                    } catch (error) {
+                        console.error("Error sending menu to newsletter:", error);
+                    }
+                    return true;
+                    
                 default:
                     return false;
             }
         }
         
-        // Regular chat/group message handling
         switch (commandName) {
             case 'ping':
             case 'speed':
@@ -1144,34 +877,28 @@ async function handleBuiltInCommands(conn, message, commandName, args, sessionId
             case 'help':
             case 'RAMA-XMD':
                 console.log(`📋 Generating menu for ${commandName}...`);
-                // Generate and send interactive carousel menu
-                const success = await generateCarouselMenu(conn, from, message);
-                if (!success) {
-                    console.log('⚠️ Carousel menu failed, using fallback text menu');
-                    // Fallback to simple text menu if carousel fails
-                    const fallbackMenu = generateFallbackMenu();
-                    await conn.sendMessage(from, {
-                        text: fallbackMenu,
-                        contextInfo: {
-                            forwardingScore: 999,
-                            isForwarded: true,
-                            forwardedNewsletterMessageInfo: {
-                                newsletterJid: "120363401269012709@newsletter",
-                                newsletterName: "RAMA-XMD",
-                                serverMessageId: 200
-                            },
-                            externalAdReply: {
-                                title: "📃 RAMA-XMD Command Menu",
-                                body: `${BOT_NAME} - All Available Commands`,
-                                thumbnailUrl: MENU_IMAGE_URL,
-                                sourceUrl: REPO_LINK,
-                                mediaType: 1,
-                                renderLargerThumbnail: true
-                            }
+                const menuText = generateSimpleMenu();
+                await conn.sendMessage(from, {
+                    text: menuText,
+                    contextInfo: {
+                        forwardingScore: 999,
+                        isForwarded: true,
+                        forwardedNewsletterMessageInfo: {
+                            newsletterJid: "120363401269012709@newsletter",
+                            newsletterName: "RAMA-XMD",
+                            serverMessageId: 200
+                        },
+                        externalAdReply: {
+                            title: "📃 RAMA-XMD Command Menu",
+                            body: `${BOT_NAME} - All Available Commands`,
+                            thumbnailUrl: MENU_IMAGE_URL,
+                            sourceUrl: REPO_LINK,
+                            mediaType: 1,
+                            renderLargerThumbnail: true
                         }
-                    }, { quoted: message });
-                    console.log('✅ Fallback text menu sent');
-                }
+                    }
+                }, { quoted: message });
+                console.log('✅ Text menu sent successfully');
                 return true;
                 
             default:
@@ -1183,14 +910,12 @@ async function handleBuiltInCommands(conn, message, commandName, args, sessionId
     }
 }
 
-// Setup connection event handlers
 function setupConnectionHandlers(conn, sessionId, io, saveCreds) {
     let hasShownConnectedMessage = false;
     let isLoggedOut = false;
     let reconnectAttempts = 0;
     const MAX_RECONNECT_ATTEMPTS = 5;
     
-    // Handle connection updates
     conn.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect } = update;
         
@@ -1206,7 +931,6 @@ function setupConnectionHandlers(conn, sessionId, io, saveCreds) {
             activeSockets++;
             broadcastStats();
             
-            // Send connected event to frontend
             io.emit("linked", { sessionId });
             
             if (!hasShownConnectedMessage) {
@@ -1291,7 +1015,6 @@ ${channelStatus}
                 broadcastStats();
                 
                 if (lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut) {
-                    // Delete from MongoDB on logout
                     await deleteSessionFromMongo(sessionId);
                     setTimeout(() => {
                         cleanupSession(sessionId, true);
@@ -1304,11 +1027,9 @@ ${channelStatus}
         }
     });
 
-    // Handle credentials updates
     conn.ev.on("creds.update", async () => {
         if (saveCreds) {
             await saveCreds();
-            // Save to MongoDB as backup
             const sessionDir = path.join(__dirname, "sessions", sessionId);
             const credsPath = path.join(sessionDir, 'creds.json');
             if (fs.existsSync(credsPath)) {
@@ -1324,7 +1045,6 @@ ${channelStatus}
         }
     });
 
-    // Handle messages
     conn.ev.on("messages.upsert", async (m) => {
         try {
             const message = m.messages[0];
@@ -1371,7 +1091,6 @@ ${channelStatus}
         }
     });
 
-    // Auto View Status feature
     conn.ev.on("messages.upsert", async (m) => {
         try {
             const msg = m.messages[0];
@@ -1384,7 +1103,6 @@ ${channelStatus}
         }
     });
 
-    // Auto Like Status feature
     conn.ev.on("messages.upsert", async (m) => {
         try {
             const msg = m.messages[0];
@@ -1409,7 +1127,6 @@ ${channelStatus}
     });
 }
 
-// Function to reinitialize connection
 async function initializeConnection(sessionId) {
     try {
         const sessionDir = path.join(__dirname, "sessions", sessionId);
@@ -1457,7 +1174,6 @@ async function initializeConnection(sessionId) {
     }
 }
 
-// Clean up session folder (ONLY delete on logout)
 function cleanupSession(sessionId, deleteEntireFolder = false) {
     const sessionDir = path.join(__dirname, "sessions", sessionId);
     
@@ -1471,13 +1187,11 @@ function cleanupSession(sessionId, deleteEntireFolder = false) {
     }
 }
 
-// API endpoint to get loaded commands
 app.get("/api/commands", (req, res) => {
     const commandList = Array.from(commands.keys());
     res.json({ commands: commandList });
 });
 
-// Socket.io connection handling
 io.on("connection", (socket) => {
     console.log("🔌 Client connected:", socket.id);
     
@@ -1490,7 +1204,6 @@ io.on("connection", (socket) => {
     });
 });
 
-// Session preservation routine - NO AUTOMATIC CLEANUP
 setInterval(() => {
     const sessionsDir = path.join(__dirname, "sessions");
     
@@ -1510,7 +1223,6 @@ setInterval(() => {
     });
 }, 5 * 60 * 1000);
 
-// Function to reload existing sessions on server restart
 async function reloadExistingSessions() {
     console.log("🔄 Checking for existing sessions to reload...");
     
@@ -1554,20 +1266,17 @@ async function reloadExistingSessions() {
     broadcastStats();
 }
 
-// Start the server
 server.listen(port, async () => {
     console.log(`🚀 ${BOT_NAME} server running on http://localhost:${port}`);
     console.log(`📱 WhatsApp bot initialized`);
     console.log(`🔧 Loaded ${commands.size} commands`);
     console.log(`📊 Starting with ${totalUsers} total users (persistent)`);
     
-    // Initialize MongoDB session storage
     await initSessionMongo();
     
     await reloadExistingSessions();
 });
 
-// Graceful shutdown
 let isShuttingDown = false;
 
 function gracefulShutdown() {
@@ -1594,7 +1303,6 @@ function gracefulShutdown() {
   console.log(`✅ Closed ${connectionCount} WhatsApp connections`);
   console.log(`📁 All session folders preserved for next server start`);
   
-  // Close MongoDB connection
   if (sessionMongoClient) {
     sessionMongoClient.close().catch(() => {});
   }
@@ -1612,7 +1320,6 @@ function gracefulShutdown() {
   });
 }
 
-// Handle termination signals
 process.on("SIGINT", () => {
   console.log("\nReceived SIGINT signal");
   gracefulShutdown();
