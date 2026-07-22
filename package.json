@@ -23,6 +23,7 @@
     "fs-extra": "^11.3.2",
     "node-fetch": "^3.3.2",
     "pino": "^9.9.5",
+    "mongodb": "^5.7.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.1",
     "wa-sticker-formatter": "^4.4.4"
