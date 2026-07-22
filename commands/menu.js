@@ -1,6 +1,7 @@
 // commands/menu.js – Square cards, long categories split into multiple cards
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 const {
   generateWAMessageContent,
   generateWAMessageFromContent
@@ -20,7 +21,7 @@ async function menuCommand(conn, message, m, options) {
     const prefix = process.env.PREFIX || '.';
     const owner = process.env.OWNER_NAME || '404unkown';
     const version = '3.0.7';
-    const MENU_IMAGE_URL = process.env.MENU_IMAGE_URL || "https://files.catbox.moe/0dfeid.jpg";
+    const MENU_IMAGE_URL = process.env.MENU_IMAGE_URL || "https://cdn.phototourl.com/free/2026-07-22-053a959a-b3e5-4a76-93ec-afb24f5862ef.png";
     const REPO_LINK = process.env.REPO_LINK || "https://github.com";
 
     // Get all commands from global
@@ -77,20 +78,28 @@ async function menuCommand(conn, message, m, options) {
     // Sort categories
     categoriesRaw.sort((a, b) => a.name.localeCompare(b.name));
 
-    // ========== GET IMAGE ==========
+    // ========== GET IMAGE FROM URL ==========
     let imageBuffer = null;
     try {
-      const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
-      if (fs.existsSync(imagePath)) {
-        imageBuffer = fs.readFileSync(imagePath);
-      } else {
-        // Try to download from URL if local image doesn't exist
-        const axios = require('axios');
-        const response = await axios.get(MENU_IMAGE_URL, { responseType: 'arraybuffer', timeout: 10000 });
-        imageBuffer = Buffer.from(response.data);
-      }
+      // Try to download from URL
+      const response = await axios.get(MENU_IMAGE_URL, { 
+        responseType: 'arraybuffer', 
+        timeout: 10000 
+      });
+      imageBuffer = Buffer.from(response.data);
+      console.log('📸 Menu image loaded from URL');
     } catch (error) {
-      console.log('📸 No menu image found');
+      console.log('📸 Failed to load image from URL, trying local assets...');
+      // Fallback to local assets
+      try {
+        const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
+        if (fs.existsSync(imagePath)) {
+          imageBuffer = fs.readFileSync(imagePath);
+          console.log('📸 Menu image loaded from assets');
+        }
+      } catch (localError) {
+        console.log('📸 No menu image found');
+      }
     }
 
     async function getImageMessage(buffer) {
@@ -228,7 +237,7 @@ async function menuCommand(conn, message, m, options) {
         externalAdReply: {
           title: "📃 RAMA-XMD Command Menu",
           body: `${process.env.BOT_NAME || 'RAMA-XMD'} - All Available Commands`,
-          thumbnailUrl: process.env.MENU_IMAGE_URL || "https://files.catbox.moe/0dfeid.jpg",
+          thumbnailUrl: process.env.MENU_IMAGE_URL || "https://cdn.phototourl.com/free/2026-07-22-053a959a-b3e5-4a76-93ec-afb24f5862ef.png",
           sourceUrl: process.env.REPO_LINK || "https://github.com",
           mediaType: 1,
           renderLargerThumbnail: true
