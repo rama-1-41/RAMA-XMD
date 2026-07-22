@@ -1,6 +1,4 @@
-// commands/menu.js – Square cards, long categories split into multiple cards
-const fs = require('fs');
-const path = require('path');
+// commands/menu1.js – Dynamic carousel menu that auto-loads commands
 const axios = require('axios');
 const {
   generateWAMessageContent,
@@ -14,9 +12,8 @@ function runtime(seconds) {
   return `${hours}h ${minutes}m ${secs}s`;
 }
 
-async function menuCommand(conn, message, m, options) {
+async function menu1Command(sock, chatId, message, args) {
   try {
-    const { from } = options;
     const botName = process.env.BOT_NAME || 'RAMA-XMD';
     const prefix = process.env.PREFIX || '.';
     const owner = process.env.OWNER_NAME || '404unkown';
@@ -26,12 +23,12 @@ async function menuCommand(conn, message, m, options) {
 
     // Get all commands from global
     const allCommands = global.commands || new Map();
-
-    // ========== CATEGORIZED COMMANDS ==========
+    
+    // ========== BUILD CATEGORIES DYNAMICALLY ==========
     const categoriesRaw = [];
-
-    // Build categories from loaded commands
     const commandCategories = {};
+
+    // Group commands by category
     for (const [pattern, command] of allCommands.entries()) {
       let category = command.category || 'general';
       if (command.tags && Array.isArray(command.tags)) {
@@ -43,7 +40,7 @@ async function menuCommand(conn, message, m, options) {
       commandCategories[category].push(pattern);
     }
 
-    // Define category names with emojis
+    // Category emojis
     const categoryEmojis = {
       'utility': '🔧',
       'settings': '⚙️',
@@ -75,15 +72,15 @@ async function menuCommand(conn, message, m, options) {
       });
     }
 
-    // Sort categories
+    // Sort categories alphabetically
     categoriesRaw.sort((a, b) => a.name.localeCompare(b.name));
 
     // ========== GET IMAGE FROM URL ==========
     let imageBuffer = null;
     try {
-      const response = await axios.get(MENU_IMAGE_URL, { 
-        responseType: 'arraybuffer', 
-        timeout: 10000 
+      const response = await axios.get(MENU_IMAGE_URL, {
+        responseType: 'arraybuffer',
+        timeout: 10000
       });
       imageBuffer = Buffer.from(response.data);
       console.log('📸 Menu image loaded from URL');
@@ -96,7 +93,7 @@ async function menuCommand(conn, message, m, options) {
       try {
         const content = await generateWAMessageContent(
           { image: buffer },
-          { upload: conn.waUploadToServer }
+          { upload: sock.waUploadToServer }
         );
         return content.imageMessage;
       } catch (error) {
@@ -105,7 +102,7 @@ async function menuCommand(conn, message, m, options) {
       }
     }
 
-    const menuImage = imageBuffer ? await getImageMessage(imageBuffer) : null;
+    const menu1Image = imageBuffer ? await getImageMessage(imageBuffer) : null;
 
     // ========== BUILD CARDS ==========
     const CHUNK_SIZE = 12;
@@ -118,37 +115,22 @@ async function menuCommand(conn, message, m, options) {
 ║✦ ↳ *VERSION:* v${version}
 ║✦ ↳ *OWNER:* 🧩${owner}🧩
 ║✦ ↳ *PREFIX:* ${prefix}
+║✦ ↳ *TOTAL CMDS:* ${allCommands.size}
 ╚═══════✦═══════╝`;
 
     cards.push({
-      header: { 
-        title: `${botName} INFO`, 
-        hasMediaAttachment: !!menuImage, 
-        imageMessage: menuImage 
-      },
+      header: { title: `${botName} INFO`, hasMediaAttachment: !!menu1Image, imageMessage: menu1Image },
       body: { text: infoDesc },
-      footer: { text: 'Page 1' },
+      footer: { text: `Page 1` },
       nativeFlowMessage: {
         buttons: [
-          { 
-            name: "cta_url", 
-            buttonParamsJson: JSON.stringify({ 
-              display_text: "📢 CHANNEL", 
-              url: "https://whatsapp.com/channel/0029Vb5ytZEE50UbwV7xBv1k" 
-            }) 
-          },
-          { 
-            name: "cta_url", 
-            buttonParamsJson: JSON.stringify({ 
-              display_text: "🔗 REPO", 
-              url: REPO_LINK 
-            }) 
-          }
+          { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📢 CHANNEL", url: "https://whatsapp.com/channel/0029Vb5ytZEE50UbwV7xBv1k" }) },
+          { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🔗 REPO", url: REPO_LINK }) }
         ]
       }
     });
 
-    // Process each category
+    // Process each category, splitting into multiple cards if needed
     let cardIndex = 1;
     for (const cat of categoriesRaw) {
       const total = cat.commands.length;
@@ -165,29 +147,13 @@ async function menuCommand(conn, message, m, options) {
         const desc = `╔═[✦ ${title} ✦]═╗\n${cmdList}╚━━━━━━━━━━━━━━━━━━━✦`;
         cardIndex++;
         cards.push({
-          header: { 
-            title: `${title}`, 
-            hasMediaAttachment: !!menuImage, 
-            imageMessage: menuImage 
-          },
+          header: { title: `${title}`, hasMediaAttachment: !!menu1Image, imageMessage: menu1Image },
           body: { text: desc },
           footer: { text: `Page ${cardIndex}` },
           nativeFlowMessage: {
             buttons: [
-              { 
-                name: "cta_url", 
-                buttonParamsJson: JSON.stringify({ 
-                  display_text: "📢 CHANNEL", 
-                  url: "https://whatsapp.com/channel/0029Vb5ytZEE50UbwV7xBv1k" 
-                }) 
-              },
-              { 
-                name: "cta_url", 
-                buttonParamsJson: JSON.stringify({ 
-                  display_text: "🔗 REPO", 
-                  url: REPO_LINK 
-                }) 
-              }
+              { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "📢 CHANNEL", url: "https://whatsapp.com/channel/0029Vb5ytZEE50UbwV7xBv1k" }) },
+              { name: "cta_url", buttonParamsJson: JSON.stringify({ display_text: "🔗 REPO", url: REPO_LINK }) }
             ]
           }
         });
@@ -195,7 +161,7 @@ async function menuCommand(conn, message, m, options) {
     }
 
     // Build and send carousel
-    const interactiveMsg = generateWAMessageFromContent(from, {
+    const interactiveMsg = generateWAMessageFromContent(chatId, {
       viewOnceMessage: {
         message: {
           interactiveMessage: {
@@ -207,136 +173,12 @@ async function menuCommand(conn, message, m, options) {
       }
     }, { quoted: message });
 
-    await conn.relayMessage(from, interactiveMsg.message, { messageId: interactiveMsg.key.id });
+    await sock.relayMessage(chatId, interactiveMsg.message, { messageId: interactiveMsg.key.id });
 
   } catch (error) {
-    console.error('❌ Carousel menu error:', error);
-    // Fallback to simple text menu if carousel fails
-    const fallbackMenu = generateFallbackMenu();
-    await conn.sendMessage(options.from, {
-      text: fallbackMenu,
-      contextInfo: {
-        forwardingScore: 999,
-        isForwarded: true,
-        forwardedNewsletterMessageInfo: {
-          newsletterJid: "120363401269012709@newsletter",
-          newsletterName: "RAMA-XMD",
-          serverMessageId: 200
-        },
-        externalAdReply: {
-          title: "📃 RAMA-XMD Command Menu",
-          body: `${process.env.BOT_NAME || 'RAMA-XMD'} - All Available Commands`,
-          thumbnailUrl: process.env.MENU_IMAGE_URL || "https://cdn.phototourl.com/free/2026-07-22-053a959a-b3e5-4a76-93ec-afb24f5862ef.png",
-          sourceUrl: process.env.REPO_LINK || "https://github.com",
-          mediaType: 1,
-          renderLargerThumbnail: true
-        }
-      }
-    }, { quoted: message });
+    console.error('❌ menu1 error:', error);
+    await sock.sendMessage(chatId, { text: '❌ Interactive menu failed to load. Please try again.' }, { quoted: message });
   }
 }
 
-// Fallback text menu
-function generateFallbackMenu() {
-  const allCommands = global.commands || new Map();
-  const BOT_NAME = process.env.BOT_NAME || "RAMA-XMD";
-  const OWNER_NAME = process.env.OWNER_NAME || "404unkown";
-  const PREFIX = process.env.PREFIX || ".";
-
-  const builtInCommands = [
-    { name: 'ping', category: 'utility' },
-    { name: 'prefix', category: 'settings' },
-    { name: 'menu', category: 'utility' },
-    { name: 'help', category: 'utility' },
-    { name: 'RAMA-XMD', category: 'utility' }
-  ];
-
-  const folderCommands = [];
-  for (const [pattern, command] of allCommands.entries()) {
-    if (pattern === 'menu' || pattern === 'help' || pattern === 'RAMA-XMD') continue;
-
-    let category = command.category || 'general';
-    if (command.tags && Array.isArray(command.tags)) {
-      category = command.tags[0] || 'general';
-    }
-
-    folderCommands.push({
-      name: pattern,
-      category: category
-    });
-  }
-
-  const allCommandList = [...builtInCommands, ...folderCommands];
-
-  const commandsByCategory = {};
-  allCommandList.forEach(cmd => {
-    const cat = cmd.category || 'general';
-    if (!commandsByCategory[cat]) {
-      commandsByCategory[cat] = [];
-    }
-    commandsByCategory[cat].push(cmd);
-  });
-
-  const categoryEmojis = {
-    'utility': '🔧',
-    'settings': '⚙️',
-    'admin': '👑',
-    'general': '📦',
-    'fun': '🎮',
-    'game': '🎲',
-    'media': '🎬',
-    'download': '⬇️',
-    'group': '👥',
-    'owner': '👤',
-    'ai': '🤖',
-    'tools': '🛠️',
-    'search': '🔍',
-    'info': 'ℹ️',
-    'audio': '🎵',
-    'text': '✍️',
-    'anime': '🎌',
-    'finance': '💰',
-    'emoji': '😊'
-  };
-
-  const uptime = process.uptime();
-  const hours = Math.floor(uptime / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  const secs = Math.floor(uptime % 60);
-  const runtimeStr = `${hours}h ${minutes}m ${secs}s`;
-
-  let menuText = `
-╔══════════════════════════════════════╗
-║     🚀 ${BOT_NAME} 🚀     ║
-╠══════════════════════════════════════╣
-║  📌 Prefix : ${PREFIX.padEnd(20)}║
-║  👤 Owner  : ${OWNER_NAME.padEnd(20)}║
-║  ⏱️ Runtime: ${runtimeStr.padEnd(20)}║
-║  🔧 Total  : ${allCommandList.length.toString().padEnd(20)}║
-╠══════════════════════════════════════╣
-║  📋 MENU LIST                       ║
-╠══════════════════════════════════════╣
-`;
-
-  for (const [category, cmds] of Object.entries(commandsByCategory)) {
-    const emoji = categoryEmojis[category] || '🔹';
-    menuText += `║  ${emoji} ${category.toUpperCase().padEnd(30)}║\n`;
-    for (const cmd of cmds) {
-      menuText += `║     ➤ ${PREFIX}${cmd.name.padEnd(30)}║\n`;
-    }
-    menuText += `║  ${'─'.repeat(36)}║\n`;
-  }
-
-  menuText += `╚══════════════════════════════════════╝\n`;
-  menuText += `\n✨ Powered by ${OWNER_NAME} ✨`;
-
-  return menuText;
-}
-
-module.exports = {
-  pattern: 'menu',
-  alias: ['help', 'RAMA-XMD'],
-  category: 'utility',
-  desc: 'Show interactive bot command menu',
-  execute: menuCommand
-};
+module.exports = menu1Command;
