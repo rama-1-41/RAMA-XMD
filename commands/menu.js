@@ -8,7 +8,7 @@ module.exports = {
         const BOT_NAME = process.env.BOT_NAME || "RAMA-XMD";
         const OWNER_NAME = process.env.OWNER_NAME || "404unkown";
         const PREFIX = process.env.PREFIX || ".";
-        const MENU_IMAGE_URL = process.env.MENU_IMAGE_URL || "https://chatgpt.com/s/m_6a608af947788191b82db90dd1712eab";
+        const MENU_IMAGE_URL = process.env.MENU_IMAGE_URL || "https://cdn.phototourl.com/free/2026-07-22-053a959a-b3e5-4a76-93ec-afb24f5862ef.png";
         const REPO_LINK = process.env.REPO_LINK || "https://github.com";
 
         const allCommands = global.commands || new Map();
