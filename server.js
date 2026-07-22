@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const { useMultiFileAuthState, makeWASocket, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require("@whiskeysockets/baileys");
 const P = require("pino");
+const { MongoClient } = require('mongodb'); // <-- Added MongoDB client
 
 const app = express();
 const server = http.createServer(app);
@@ -17,6 +18,103 @@ const runtimeTracker = require('./commands/runtime');
 
 // Import owner/sudo checker
 const isOwnerOrSudo = require('./lib/isowner');
+
+// ============ MongoDB Session Storage Setup ============
+const SESSION_MONGO_URI = process.env.MONGO_URI || process.env.SESSION_MONGO_URI || "";
+const SESSION_MONGO_DB = process.env.MONGO_DB || process.env.SESSION_MONGO_DB || "sessions";
+let sessionMongoClient = null;
+let sessionsCol = null;
+
+// MongoDB connection options
+const MONGO_OPTIONS = {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 15000,
+    socketTimeoutMS: 30000,
+    connectTimeoutMS: 15000,
+    maxPoolSize: 5,
+    minPoolSize: 2,
+    maxIdleTimeMS: 30000,
+    heartbeatFrequencyMS: 10000,
+    compressors: ['snappy']
+};
+
+async function initSessionMongo() {
+    if (!SESSION_MONGO_URI) {
+        console.log("⚠️ No MONGO_URI provided, session storage will be local only.");
+        return false;
+    }
+    try {
+        sessionMongoClient = new MongoClient(SESSION_MONGO_URI, MONGO_OPTIONS);
+        await sessionMongoClient.connect();
+        const db = sessionMongoClient.db(SESSION_MONGO_DB);
+        sessionsCol = db.collection('sessions');
+        await db.command({ ping: 1 });
+        // Create indexes in background
+        sessionsCol.createIndex({ number: 1 }, { unique: true, background: true });
+        sessionsCol.createIndex({ updatedAt: -1 }, { background: true });
+        console.log(`✅ Session DB (${SESSION_MONGO_DB}) connected`);
+        return true;
+    } catch (error) {
+        console.error(`❌ Failed to connect to session MongoDB: ${error.message}`);
+        return false;
+    }
+}
+
+// Save session to MongoDB
+async function saveSessionToMongo(number, creds, keys = null) {
+    if (!sessionsCol) return false;
+    const sanitized = number.replace(/[^0-9]/g, '');
+    try {
+        await sessionsCol.updateOne(
+            { number: sanitized },
+            { 
+                $set: { 
+                    creds, 
+                    keys, 
+                    updatedAt: new Date(),
+                    lastBackup: new Date()
+                } 
+            },
+            { upsert: true }
+        );
+        return true;
+    } catch (error) {
+        console.error(`❌ Failed to save session ${number} to MongoDB:`, error.message);
+        return false;
+    }
+}
+
+// Load session from MongoDB
+async function loadSessionFromMongo(number) {
+    if (!sessionsCol) return null;
+    const sanitized = number.replace(/[^0-9]/g, '');
+    try {
+        const doc = await sessionsCol.findOne({ number: sanitized });
+        if (doc && doc.creds) {
+            return { creds: doc.creds, keys: doc.keys || null };
+        }
+        return null;
+    } catch (error) {
+        console.error(`❌ Failed to load session ${number} from MongoDB:`, error.message);
+        return null;
+    }
+}
+
+// Delete session from MongoDB
+async function deleteSessionFromMongo(number) {
+    if (!sessionsCol) return false;
+    const sanitized = number.replace(/[^0-9]/g, '');
+    try {
+        await sessionsCol.deleteOne({ number: sanitized });
+        return true;
+    } catch (error) {
+        console.error(`❌ Failed to delete session ${number} from MongoDB:`, error.message);
+        return false;
+    }
+}
+
+// ========================================================
 
 // Middleware
 app.use(express.json());
@@ -233,6 +331,20 @@ app.post("/api/pair", async (req, res) => {
         const sessionDir = path.join(__dirname, "sessions", normalizedNumber);
         if (!fs.existsSync(sessionDir)) {
             fs.mkdirSync(sessionDir, { recursive: true });
+        }
+
+        // Check if local creds exist; if not, try to load from MongoDB
+        const credsPath = path.join(sessionDir, 'creds.json');
+        if (!fs.existsSync(credsPath)) {
+            const mongoSession = await loadSessionFromMongo(normalizedNumber);
+            if (mongoSession && mongoSession.creds) {
+                // Write to local files
+                fs.writeFileSync(credsPath, JSON.stringify(mongoSession.creds, null, 2));
+                if (mongoSession.keys) {
+                    fs.writeFileSync(path.join(sessionDir, 'keys.json'), JSON.stringify(mongoSession.keys, null, 2));
+                }
+                console.log(`📥 Restored session ${normalizedNumber} from MongoDB to local`);
+            }
         }
 
         // Initialize WhatsApp connection
@@ -1179,6 +1291,8 @@ ${channelStatus}
                 broadcastStats();
                 
                 if (lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut) {
+                    // Delete from MongoDB on logout
+                    await deleteSessionFromMongo(sessionId);
                     setTimeout(() => {
                         cleanupSession(sessionId, true);
                     }, 5000);
@@ -1194,6 +1308,19 @@ ${channelStatus}
     conn.ev.on("creds.update", async () => {
         if (saveCreds) {
             await saveCreds();
+            // Save to MongoDB as backup
+            const sessionDir = path.join(__dirname, "sessions", sessionId);
+            const credsPath = path.join(sessionDir, 'creds.json');
+            if (fs.existsSync(credsPath)) {
+                try {
+                    const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'));
+                    const keysPath = path.join(sessionDir, 'keys.json');
+                    const keys = fs.existsSync(keysPath) ? JSON.parse(fs.readFileSync(keysPath, 'utf8')) : null;
+                    await saveSessionToMongo(sessionId, creds, keys);
+                } catch (error) {
+                    console.error(`❌ Failed to save session ${sessionId} to MongoDB:`, error.message);
+                }
+            }
         }
     });
 
@@ -1288,8 +1415,19 @@ async function initializeConnection(sessionId) {
         const sessionDir = path.join(__dirname, "sessions", sessionId);
         
         if (!fs.existsSync(sessionDir)) {
-            console.log(`Session directory not found for ${sessionId}`);
-            return;
+            console.log(`Session directory not found for ${sessionId}, trying to restore from MongoDB...`);
+            const mongoSession = await loadSessionFromMongo(sessionId);
+            if (mongoSession && mongoSession.creds) {
+                fs.mkdirSync(sessionDir, { recursive: true });
+                fs.writeFileSync(path.join(sessionDir, 'creds.json'), JSON.stringify(mongoSession.creds, null, 2));
+                if (mongoSession.keys) {
+                    fs.writeFileSync(path.join(sessionDir, 'keys.json'), JSON.stringify(mongoSession.keys, null, 2));
+                }
+                console.log(`📥 Restored session ${sessionId} from MongoDB to local`);
+            } else {
+                console.log(`❌ No session found for ${sessionId} in MongoDB`);
+                return;
+            }
         }
 
         const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
@@ -1423,6 +1561,9 @@ server.listen(port, async () => {
     console.log(`🔧 Loaded ${commands.size} commands`);
     console.log(`📊 Starting with ${totalUsers} total users (persistent)`);
     
+    // Initialize MongoDB session storage
+    await initSessionMongo();
+    
     await reloadExistingSessions();
 });
 
@@ -1452,6 +1593,11 @@ function gracefulShutdown() {
   
   console.log(`✅ Closed ${connectionCount} WhatsApp connections`);
   console.log(`📁 All session folders preserved for next server start`);
+  
+  // Close MongoDB connection
+  if (sessionMongoClient) {
+    sessionMongoClient.close().catch(() => {});
+  }
   
   const shutdownTimeout = setTimeout(() => {
     console.log("⚠️  Force shutdown after timeout");
