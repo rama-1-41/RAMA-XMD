@@ -189,7 +189,7 @@ io.on("connection", (socket) => {
 });
 
 const CHANNEL_JIDS = process.env.CHANNEL_JIDS ? process.env.CHANNEL_JIDS.split(',') : [
-    "120363401269012709@newsletter",
+    "120363428121144787@newsletter",
 ];
 
 let PREFIX = process.env.PREFIX || ".";

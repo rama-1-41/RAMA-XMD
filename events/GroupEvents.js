@@ -13,7 +13,7 @@ const getContextInfo = (mentionedJids) => ({
   forwardingScore: 999,
   isForwarded: true,
   forwardedNewsletterMessageInfo: {
-    newsletterJid: '120363401269012709@newsletter',
+    newsletterJid: '120363428121144787@newsletter',
     newsletterName: "RAMA-XMD - ",
     serverMessageId: 200,
   },
