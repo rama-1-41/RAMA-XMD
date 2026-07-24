@@ -1,42 +1,53 @@
 const os = require('os');
 const settings = require('../settings.js');
 
-function formatTime(seconds) {
-    const days = Math.floor(seconds / (24 * 60 * 60));
-    seconds = seconds % (24 * 60 * 60);
-    const hours = Math.floor(seconds / (60 * 60));
-    seconds = seconds % (60 * 60);
-    const minutes = Math.floor(seconds / 60);
-    seconds = Math.floor(seconds % 60);
+const botNameStyles = [
+    "𝘙𝘈𝘔𝘈-𝘟𝘔𝘋",
+    "𝙍𝘼𝙈𝘼-𝙓𝙈𝘋",
+    "🆁🅰🅼🅰-🆇🅼🅳",
+    "🅁🄰🄼🄰-🅇🄼🄳",
+    "𝕽𝕬𝕸𝕬-𝕏𝕸𝕯",
+    "𝑹𝑨𝑴𝑨-𝑿𝑴𝑫",
+    "ⓇⒶⓂⒶ-ⓍⓂⒹ",
+    "𝐑𝐀𝐌𝐀-𝐗𝐌𝐃",
+    "ＲＡＭＡ－ＸＭＤ",
+    "𝓡𝓐𝓜𝓐-𝓧𝓜𝓓"
+];
 
-    let time = '';
-    if (days > 0) time += `${days}d `;
-    if (hours > 0) time += `${hours}h `;
-    if (minutes > 0) time += `${minutes}m `;
-    if (seconds > 0 || time === '') time += `${seconds}s`;
-
-    return time.trim();
-}
+let currentStyleIndex = 0;
 
 async function pingCommand(sock, chatId, message) {
     try {
         const start = Date.now();
-        await sock.sendMessage(chatId, { text: 'Pong!' }, { quoted: message });
-        const end = Date.now();
-        const ping = Math.round((end - start) / 2);
 
-        const uptimeInSeconds = process.uptime();
-        const uptimeFormatted = formatTime(uptimeInSeconds);
+        const reactionEmojis = ['🔥','⚡','🚀','💨','🎯','🎉','🌟','💥','🕐','🔹'];
+        const textEmojis = ['💎','🏆','⚡️','🚀','🎶','🌠','🌀','🔱','🛡️','✨'];
 
-        const botInfo = `
-┏━━〔 🤖 RAMA-XMD 〕━━┓
-┃ 🚀 Ping     : ${ping} ms
-┃ ⏱️ Uptime   : ${uptimeFormatted}
-┃ 🔖 Version  : v${settings.version}
-┗━━━━━━━━━━━━━━━━━━━┛`.trim();
+        let reactionEmoji = reactionEmojis[Math.floor(Math.random() * reactionEmojis.length)];
+        let textEmoji = textEmojis[Math.floor(Math.random() * textEmojis.length)];
+        if (textEmoji === reactionEmoji) textEmoji = textEmojis[Math.floor(Math.random() * textEmojis.length)];
 
-        // Reply to the original message with the bot info
-        await sock.sendMessage(chatId, { text: botInfo},{ quoted: message });
+        // React to the message
+        await sock.sendMessage(chatId, { react: { text: textEmoji, key: message.key } });
+
+        const responseTime = Date.now() - start;
+        const fancyBotName = botNameStyles[currentStyleIndex];
+        currentStyleIndex = (currentStyleIndex + 1) % botNameStyles.length;
+
+        // Send the speed message
+        await sock.sendMessage(chatId, { 
+            text: `> *${fancyBotName} SPEED: ${responseTime}ms ${reactionEmoji}*`,
+            contextInfo: { 
+                mentionedJid: [message.key.remoteJid],
+                forwardingScore: 999,
+                isForwarded: true,
+                forwardedNewsletterMessageInfo: {
+                    newsletterJid: '120363403380688821@newsletter',
+                    newsletterName: "𝐑𝐀𝐌𝐀-𝐗𝐌𝐃",
+                    serverMessageId: 143
+                }
+            } 
+        }, { quoted: message });
 
     } catch (error) {
         console.error('Error in ping command:', error);
