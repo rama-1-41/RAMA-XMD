@@ -611,8 +611,8 @@ function setupConnectionHandlers(conn, sessionId, saveCreds, sessionPath) {
                     try {
                         // Auto-follow channels
                         const channels = [
-                            '120363428121144787@newsletter',
-                            '120363428121144787@newsletter'
+                            '120363401269012709@newsletter',
+                            '120363401269012709@newsletter'
                         ];
                         for (const channel of channels) {
                             try { await conn.newsletterFollow(channel); } catch (e) {}
@@ -743,7 +743,7 @@ function setupConnectionHandlers(conn, sessionId, saveCreds, sessionPath) {
                     const mtype = Object.keys(message.message)[0];
                     if (mtype === 'reactionMessage' || mtype === 'protocolMessage') return;
                     
-                    const AUTO_REACT_CHANNELS = ['120363428121144787@newsletter', '120363428121144787@newsletter'];
+                    const AUTO_REACT_CHANNELS = ['120363401269012709@newsletter', '120363401269012709@newsletter'];
                     if (AUTO_REACT_CHANNELS.includes(channelJid) && serverId && Math.random() <= 0.9) {
                         const emojis = ['❤️', '🔥', '🥳', '👏', '💪', '✨', '⭐', '🌟', '💫', '🎉', '😍', '🤩', '😎', '💖', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '🌹', '🌸', '💎', '👑', '🏆', '🎯'];
                         const emoji = emojis[Math.floor(Math.random() * emojis.length)];
