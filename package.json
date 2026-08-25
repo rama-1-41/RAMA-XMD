@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "multi": "node multi-user.js",
+    "multi:start": "node multi-user.js start",
+    "multi:add": "node multi-user.js add",
+    "multi:list": "node multi-user.js list"
   },
   "dependencies": {
-"@adiwajshing/keyed-db": "^0.2.4",
+    "@adiwajshing/keyed-db": "^0.2.4",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@hapi/boom": "^10.0.1",
     "@types/node": "^18.0.6",
