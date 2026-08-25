@@ -143,7 +143,8 @@ const { pmblockerCommand, readState: readPmBlockerState } = require('./plugins/p
 const settingsCommand = require('./plugins/settings');
 const soraCommand = require('./plugins/sora');
 const newsletterCommand = require('./plugins/newsletter');
-const { handleAiVoiceCommand, handleAiVoiceMessage } = require('./plugins/aiVoice'); // ADD THIS LINE
+const { handleAiVoiceCommand, handleAiVoiceMessage } = require('./plugins/aiVoice');
+const getppCommand = require('./plugins/getpp'); // ADD THIS LINE
 
 // Global settings
 global.packname = settings.packname;
@@ -1162,10 +1163,22 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await newsletterCommand.handler(sock, message);
                 commandExecuted = true;
                 break;
-            case userMessage.startsWith('.aivoice'): // ADD THIS CASE
+            case userMessage.startsWith('.aivoice'):
                 {
                     const args = userMessage.split(' ').slice(1);
                     await handleAiVoiceCommand(sock, chatId, message, args);
+                    commandExecuted = true;
+                }
+                break;
+            case userMessage.startsWith('.getpp'):
+            case userMessage.startsWith('.getdp'):
+            case userMessage.startsWith('.pp'):
+            case userMessage.startsWith('.avatar'):
+            case userMessage.startsWith('.profilepic'):
+            case userMessage.startsWith('.getavatar'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await getppCommand.handler(sock, chatId, message, args);
                     commandExecuted = true;
                 }
                 break;
