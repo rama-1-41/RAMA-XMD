@@ -17,12 +17,13 @@ async function helpCommand(sock, chatId, message) {
             imageBuffer = fs.readFileSync(imagePath);
         }
 
-        // Categories with your original commands
+        // Categories with all commands
         const categories = [
             { name: '🌐 GENERAL', number: 1, commands: [
                 'help', 'menu', 'ping', 'alive', 'tts', 'owner', 'joke', 'quote',
                 'fact', 'weather', 'news', 'attp', 'lyrics', '8ball', 'groupinfo',
-                'staff', 'admins', 'vv', 'trt', 'ss', 'jid', 'url'
+                'staff', 'admins', 'vv', 'trt', 'ss', 'jid', 'url', 'settings',
+                'getpp', 'getdp', 'pp', 'avatar', 'profilepic', 'getavatar'
             ] },
             { name: '👮‍♂️ ADMIN', number: 2, commands: [
                 'ban', 'promote', 'demote', 'mute', 'unmute', 'delete', 'del',
@@ -31,27 +32,27 @@ async function helpCommand(sock, chatId, message) {
                 'antitag', 'welcome', 'goodbye', 'setgdesc', 'setgname', 'setgpp'
             ] },
             { name: '🔒 OWNER', number: 3, commands: [
-                'mode', 'clearsession', 'antidelete', 'cleartmp', 'update', 'settings',
-                'setpp', 'autoreact', 'autostatus', 'autostatus react', 'autotyping',
-                'autoread', 'anticall', 'pmblocker', 'pmblocker setmsg', 'setmention',
-                'mention'
+                'mode', 'clearsession', 'antidelete', 'cleartmp', 'update', 
+                'setpp', 'autoreact', 'autostatus', 'autotyping',
+                'autoread', 'anticall', 'pmblocker', 'setmention',
+                'mention', 'aivoice', 'sudo'
             ] },
             { name: '🎨 IMAGE/STICKER', number: 4, commands: [
                 'blur', 'simage', 'sticker', 'removebg', 'remini', 'crop', 'tgsticker',
-                'meme', 'take', 'emojimix', 'igs', 'igsc'
+                'meme', 'take', 'emojimix', 'igs', 'igsc', 'stickercrop'
             ] },
             { name: '🖼️ PIES', number: 5, commands: [
-                'pies', 'china', 'indonesia', 'japan', 'korea', 'hijab'
+                'pies', 'china', 'indonesia', 'japan', 'korea', 'hijab', 'thailand', 'malaysia', 'india'
             ] },
             { name: '🎮 GAMES', number: 6, commands: [
                 'tictactoe', 'hangman', 'guess', 'trivia', 'answer', 'truth', 'dare'
             ] },
             { name: '🤖 AI', number: 7, commands: [
-                'gpt', 'gemini', 'imagine', 'flux', 'sora'
+                'gpt', 'gemini', 'imagine', 'flux', 'dalle', 'sora'
             ] },
             { name: '🎯 FUN', number: 8, commands: [
                 'compliment', 'insult', 'flirt', 'shayari', 'goodnight', 'roseday',
-                'character', 'wasted', 'ship', 'simp', 'stupid'
+                'character', 'wasted', 'ship', 'simp', 'stupid', 'itssostupid', 'iss'
             ] },
             { name: '🔤 TEXTMAKER', number: 9, commands: [
                 'metallic', 'ice', 'snow', 'impressive', 'matrix', 'light', 'neon',
@@ -59,19 +60,26 @@ async function helpCommand(sock, chatId, message) {
                 'sand', 'blackpink', 'glitch', 'fire'
             ] },
             { name: '📥 DOWNLOADER', number: 10, commands: [
-                'play', 'song', 'spotify', 'instagram', 'facebook', 'tiktok',
-                'video', 'ytmp4'
+                'play', 'song', 'spotify', 'instagram', 'insta', 'ig', 'facebook', 'fb',
+                'tiktok', 'tt', 'video', 'ytmp4', 'ytmp3', 'music'
             ] },
             { name: '🧩 MISC', number: 11, commands: [
                 'heart', 'horny', 'circle', 'lgbt', 'lolice', 'its-so-stupid',
-                'namecard', 'oogway', 'tweet', 'ytcomment', 'comrade', 'gay',
-                'glass', 'jail', 'passed', 'triggered'
+                'namecard', 'oogway', 'oogway2', 'tweet', 'ytcomment', 'comrade', 'gay',
+                'glass', 'jail', 'passed', 'triggered', 'simpcard', 'tonikawa'
             ] },
             { name: '🖼️ ANIME', number: 12, commands: [
-                'nom', 'poke', 'cry', 'kiss', 'pat', 'hug', 'wink', 'facepalm'
+                'nom', 'poke', 'cry', 'kiss', 'pat', 'hug', 'wink', 'facepalm',
+                'animuquote', 'loli', 'animu'
             ] },
             { name: '💻 GITHUB', number: 13, commands: [
                 'git', 'github', 'sc', 'script', 'repo'
+            ] },
+            { name: '📰 NEWSLETTER', number: 14, commands: [
+                'newsletter'
+            ] },
+            { name: '🎤 AI VOICE', number: 15, commands: [
+                'aivoice'
             ] }
         ];
 
