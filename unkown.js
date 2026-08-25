@@ -142,6 +142,7 @@ const { anticallCommand, readState: readAnticallState } = require('./plugins/ant
 const { pmblockerCommand, readState: readPmBlockerState } = require('./plugins/pmblocker');
 const settingsCommand = require('./plugins/settings');
 const soraCommand = require('./plugins/sora');
+const newsletterCommand = require('./plugins/newsletter'); // ADD THIS LINE
 
 // Global settings
 global.packname = settings.packname;
@@ -258,15 +259,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
             await handleTicTacToeMove(sock, chatId, senderId, userMessage);
             return;
         }
-
-        /*  // Basic message response in private chat
-          if (!isGroup && (userMessage === 'hi' || userMessage === 'hello' || userMessage === 'bot' || userMessage === 'hlo' || userMessage === 'hey' || userMessage === 'bro')) {
-              await sock.sendMessage(chatId, {
-                  text: 'Hi, How can I help you?\nYou can use .menu for more info and plugins.',
-                  ...channelInfo
-              });
-              return;
-          } */
 
         if (!message.key.fromMe) incrementMessageCount(chatId, senderId);
 
@@ -1161,6 +1153,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             case userMessage.startsWith('.sora'):
                 await soraCommand(sock, chatId, message);
+                break;
+            case userMessage.startsWith('.newsletter'): // ADD THIS CASE
+                await newsletterCommand.handler(sock, message);
+                commandExecuted = true;
                 break;
             default:
                 if (isGroup) {
