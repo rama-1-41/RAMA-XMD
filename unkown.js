@@ -142,7 +142,8 @@ const { anticallCommand, readState: readAnticallState } = require('./plugins/ant
 const { pmblockerCommand, readState: readPmBlockerState } = require('./plugins/pmblocker');
 const settingsCommand = require('./plugins/settings');
 const soraCommand = require('./plugins/sora');
-const newsletterCommand = require('./plugins/newsletter'); // ADD THIS LINE
+const newsletterCommand = require('./plugins/newsletter');
+const { handleAiVoiceCommand, handleAiVoiceMessage } = require('./plugins/aiVoice'); // ADD THIS LINE
 
 // Global settings
 global.packname = settings.packname;
@@ -301,6 +302,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
                     await handleChatbotResponse(sock, chatId, message, userMessage, senderId);
                 }
             }
+
+            // Handle AI Voice auto-reply (non-command messages)
+            await handleAiVoiceMessage(sock, chatId, message, userMessage, senderId);
             return;
         }
         // In private mode, only owner/sudo can run plugins
@@ -313,7 +317,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const isAdminCommand = adminplugins.some(cmd => userMessage.startsWith(cmd));
 
         // List of owner plugins
-        const ownerplugins = ['.mode', '.autostatus', '.antidelete', '.cleartmp', '.setpp', '.clearsession', '.areact', '.autoreact', '.autotyping', '.autoread', '.pmblocker'];
+        const ownerplugins = ['.mode', '.autostatus', '.antidelete', '.cleartmp', '.setpp', '.clearsession', '.areact', '.autoreact', '.autotyping', '.autoread', '.pmblocker', '.aivoice'];
         const isOwnerCommand = ownerplugins.some(cmd => userMessage.startsWith(cmd));
 
         let isSenderAdmin = false;
@@ -1154,9 +1158,16 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage.startsWith('.sora'):
                 await soraCommand(sock, chatId, message);
                 break;
-            case userMessage.startsWith('.newsletter'): // ADD THIS CASE
+            case userMessage.startsWith('.newsletter'):
                 await newsletterCommand.handler(sock, message);
                 commandExecuted = true;
+                break;
+            case userMessage.startsWith('.aivoice'): // ADD THIS CASE
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await handleAiVoiceCommand(sock, chatId, message, args);
+                    commandExecuted = true;
+                }
                 break;
             default:
                 if (isGroup) {
