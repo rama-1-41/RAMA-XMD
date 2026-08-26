@@ -23,7 +23,8 @@ async function helpCommand(sock, chatId, message) {
                 'help', 'menu', 'ping', 'alive', 'tts', 'owner', 'joke', 'quote',
                 'fact', 'weather', 'news', 'attp', 'lyrics', '8ball', 'groupinfo',
                 'staff', 'admins', 'vv', 'trt', 'ss', 'jid', 'url', 'settings',
-                'getpp', 'getdp', 'pp', 'avatar', 'profilepic', 'getavatar'
+                'getpp', 'getdp', 'pp', 'avatar', 'profilepic', 'getavatar',
+                'totxt', 'transcribe', 'voicetotext', 'speechtotext', 'stt'
             ] },
             { name: '👮‍♂️ ADMIN', number: 2, commands: [
                 'ban', 'promote', 'demote', 'mute', 'unmute', 'delete', 'del',
@@ -48,7 +49,16 @@ async function helpCommand(sock, chatId, message) {
                 'tictactoe', 'hangman', 'guess', 'trivia', 'answer', 'truth', 'dare'
             ] },
             { name: '🤖 AI', number: 7, commands: [
-                'gpt', 'gemini', 'imagine', 'flux', 'dalle', 'sora'
+                'gpt', 'gemini', 'imagine', 'flux', 'dalle', 'sora',
+                'vision', 'imgai', 'analyze', 'geminivision',
+                'removebg', 'rmbg', 'bgremove',
+                'transcribe', 'speech', 'audio2text', 'whisper',
+                'shazam', 'identify', 'whatmusic', 'whatsong',
+                'speechwriter', 'writer',
+                'wormgpt', 'wgpt', 'evilgpt',
+                'muslimai', 'muslim', 'quranai',
+                'bibleai', 'aibible', 'scripture',
+                'text2video', 't2v', 'fluxai', 'imageai'
             ] },
             { name: '🎯 FUN', number: 8, commands: [
                 'compliment', 'insult', 'flirt', 'shayari', 'goodnight', 'roseday',
