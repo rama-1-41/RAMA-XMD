@@ -144,7 +144,8 @@ const settingsCommand = require('./plugins/settings');
 const soraCommand = require('./plugins/sora');
 const newsletterCommand = require('./plugins/newsletter');
 const { handleAiVoiceCommand, handleAiVoiceMessage } = require('./plugins/aiVoice');
-const getppCommand = require('./plugins/getpp'); // ADD THIS LINE
+const getppCommand = require('./plugins/getpp');
+const totxtCommand = require('./plugins/totxt'); // ADD THIS LINE
 
 // Global settings
 global.packname = settings.packname;
@@ -1179,6 +1180,17 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 {
                     const args = userMessage.split(' ').slice(1);
                     await getppCommand.handler(sock, chatId, message, args);
+                    commandExecuted = true;
+                }
+                break;
+            case userMessage.startsWith('.totxt'):
+            case userMessage.startsWith('.transcribe'):
+            case userMessage.startsWith('.voicetotext'):
+            case userMessage.startsWith('.speechtotext'):
+            case userMessage.startsWith('.stt'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await totxtCommand.handler(sock, chatId, message, args);
                     commandExecuted = true;
                 }
                 break;
