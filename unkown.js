@@ -145,7 +145,8 @@ const soraCommand = require('./plugins/sora');
 const newsletterCommand = require('./plugins/newsletter');
 const { handleAiVoiceCommand, handleAiVoiceMessage } = require('./plugins/aiVoice');
 const getppCommand = require('./plugins/getpp');
-const totxtCommand = require('./plugins/totxt'); // ADD THIS LINE
+const totxtCommand = require('./plugins/totxt');
+const aiTools = require('./plugins/aitools'); // ADD THIS LINE
 
 // Global settings
 global.packname = settings.packname;
@@ -1194,10 +1195,126 @@ async function handleMessages(sock, messageUpdate, printLog) {
                     commandExecuted = true;
                 }
                 break;
+
+            // ─── AI TOOLS COMMANDS ──────────────────────────────────────────
+
+            // SORA - Text to Video
+            case userMessage.startsWith('.sora'):
+            case userMessage.startsWith('.text2video'):
+            case userMessage.startsWith('.t2v'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.sora.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
+            // FLUX - AI Image Generation
+            case userMessage.startsWith('.flux'):
+            case userMessage.startsWith('.fluxai'):
+            case userMessage.startsWith('.imageai'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.flux.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
+            // SPEECHWRITER - Generate Speech
+            case userMessage.startsWith('.speechwriter'):
+            case userMessage.startsWith('.speech'):
+            case userMessage.startsWith('.writer'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.speechwriter.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
+            // MUSLIMAI - Quranic References
+            case userMessage.startsWith('.muslimai'):
+            case userMessage.startsWith('.muslim'):
+            case userMessage.startsWith('.quranai'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.muslimai.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
+            // WORMGPT - AI Chat
+            case userMessage.startsWith('.wormgpt'):
+            case userMessage.startsWith('.wgpt'):
+            case userMessage.startsWith('.evilgpt'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.wormgpt.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
+            // BIBLEAI - Bible Questions
+            case userMessage.startsWith('.bibleai'):
+            case userMessage.startsWith('.aibible'):
+            case userMessage.startsWith('.scripture'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.bibleai.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
+            // REMOVEBG - Remove Background
+            case userMessage.startsWith('.removebg'):
+            case userMessage.startsWith('.rmbg'):
+            case userMessage.startsWith('.bgremove'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.removebg.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
+            // VISION - Image Analysis
+            case userMessage.startsWith('.vision'):
+            case userMessage.startsWith('.imgai'):
+            case userMessage.startsWith('.analyze'):
+            case userMessage.startsWith('.geminivision'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.vision.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
+            // TRANSCRIBE - Audio to Text
+            case userMessage.startsWith('.transcribe'):
+            case userMessage.startsWith('.speech'):
+            case userMessage.startsWith('.audio2text'):
+            case userMessage.startsWith('.whisper'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.transcribe.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
+            // SHAZAM - Music Identification
+            case userMessage.startsWith('.shazam'):
+            case userMessage.startsWith('.identify'):
+            case userMessage.startsWith('.whatmusic'):
+            case userMessage.startsWith('.whatsong'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await aiTools.shazam.handler(sock, message, args, senderId);
+                    commandExecuted = true;
+                }
+                break;
+
             default:
                 if (isGroup) {
                     // Handle non-command group messages
-                    if (userMessage) {  // Make sure there's a message
+                    if (userMessage) {
                         await handleChatbotResponse(sock, chatId, message, userMessage, senderId);
                     }
                     await handleTagDetection(sock, chatId, message, senderId);
@@ -1209,7 +1326,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         // If a command was executed, show typing status after command execution
         if (commandExecuted !== false) {
-            // Command was executed, now show typing status after command execution
             await showTypingAfterCommand(sock, chatId);
         }
 
@@ -1231,12 +1347,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
 
         if (userMessage.startsWith('.')) {
-            // After command is processed successfully
             await addCommandReaction(sock, message);
         }
     } catch (error) {
         console.error('❌ Error in message handler:', error.message);
-        // Only try to send error message if we have a valid chatId
         if (chatId) {
             await sock.sendMessage(chatId, {
                 text: '❌ Failed to process command!',
@@ -1250,38 +1364,30 @@ async function handleGroupParticipantUpdate(sock, update) {
     try {
         const { id, participants, action, author } = update;
 
-        // Check if it's a group
         if (!id.endsWith('@g.us')) return;
 
-        // Respect bot mode: only announce promote/demote in public mode
         let isPublic = true;
         try {
             const modeData = JSON.parse(fs.readFileSync('./data/messageCount.json'));
             if (typeof modeData.isPublic === 'boolean') isPublic = modeData.isPublic;
-        } catch (e) {
-            // If reading fails, default to public behavior
-        }
+        } catch (e) {}
 
-        // Handle promotion events
         if (action === 'promote') {
             if (!isPublic) return;
             await handlePromotionEvent(sock, id, participants, author);
             return;
         }
 
-        // Handle demotion events
         if (action === 'demote') {
             if (!isPublic) return;
             await handleDemotionEvent(sock, id, participants, author);
             return;
         }
 
-        // Handle join events
         if (action === 'add') {
             await handleJoinEvent(sock, id, participants);
         }
 
-        // Handle leave events
         if (action === 'remove') {
             await handleLeaveEvent(sock, id, participants);
         }
@@ -1290,7 +1396,6 @@ async function handleGroupParticipantUpdate(sock, update) {
     }
 }
 
-// Instead, export the handlers along with handleMessages
 module.exports = {
     handleMessages,
     handleGroupParticipantUpdate,
