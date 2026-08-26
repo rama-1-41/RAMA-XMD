@@ -1,18 +1,28 @@
-// plugins/totxt.js
+// plugins/totxt.js - Full working script with AssemblyAI & OpenAI
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const FormData = require('form-data');
 const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
-const FormData = require('form-data');
+
+// Load environment variables
+require('dotenv').config();
+
+// Try to load ffmpeg-static
+let ffmpegPath = 'ffmpeg';
+try {
+    const ffmpegStatic = require('ffmpeg-static');
+    if (ffmpegStatic) ffmpegPath = ffmpegStatic;
+} catch (e) {}
 
 module.exports = {
     name: 'totxt',
-    description: 'Convert voice notes to text (transcription)',
+    description: 'Convert voice notes to text using AI',
     category: 'utility',
     usage: '.totxt [lang] - Reply to a voice note',
-    aliases: ['.transcribe', '.voicetotext', '.speechtotext', '.stt'],
+    aliases: ['.transcribe', '.voicetotext', '.stt'],
     
     handler: async (sock, chatId, message, args) => {
         try {
@@ -29,7 +39,8 @@ module.exports = {
 ❌ Please reply to a voice note!
 
 📌 *Usage:*
-.totxt [language] - Reply to a voice note
+.totxt - Reply to a voice note (English)
+.totxt sw - Reply to a voice note (Swahili)
 
 🌍 *Languages:*
 • en - English (default)
@@ -39,17 +50,13 @@ module.exports = {
 • de - German
 • it - Italian
 • pt - Portuguese
-• ru - Russian
-• ja - Japanese
-• zh - Chinese
-• ar - Arabic
-• hi - Hindi
 
-📝 *Example:*
-.totxt en - Transcribe to English
-.totxt sw - Transcribe to Swahili
+💡 *Using:* AssemblyAI + OpenAI Whisper
 
-⏳ *Note:* Processing may take a few seconds.`
+📝 *Aliases:*
+.transcribe
+.voicetotext
+.stt`
                 }, { quoted: message });
                 return;
             }
@@ -63,10 +70,9 @@ module.exports = {
                 return;
             }
 
-            // Get language from args or default to English
+            // Get language
             const language = args && args.length > 0 ? args[0] : 'en';
             
-            // Supported languages
             const languages = {
                 'en': 'English',
                 'sw': 'Swahili',
@@ -74,12 +80,7 @@ module.exports = {
                 'fr': 'French',
                 'de': 'German',
                 'it': 'Italian',
-                'pt': 'Portuguese',
-                'ru': 'Russian',
-                'ja': 'Japanese',
-                'zh': 'Chinese',
-                'ar': 'Arabic',
-                'hi': 'Hindi'
+                'pt': 'Portuguese'
             };
 
             if (!languages[language]) {
@@ -91,106 +92,139 @@ module.exports = {
 
             // Send processing message
             const processingMsg = await sock.sendMessage(chatId, {
-                text: `🎤 *Processing Voice Note...*\n\n⏳ Converting to text...\n🌍 Language: ${languages[language]}\n📏 Duration: ${voiceMessage.seconds || 'Unknown'} seconds`
+                text: `🎤 *Processing Voice Note...*\n\n⏳ Downloading and converting...\n🌍 Language: ${languages[language]}\n📏 Duration: ${voiceMessage.seconds || 'Unknown'} seconds`
             }, { quoted: message });
 
-            // Get voice note media
-            const mediaPath = await sock.downloadMediaMessage({ message: { audioMessage: voiceMessage } });
-            
-            if (!mediaPath) {
+            // ===== DOWNLOAD MEDIA =====
+            let mediaBuffer = null;
+            let mediaPath = null;
+
+            try {
+                // Try different download methods
+                if (sock.downloadMediaMessage) {
+                    mediaBuffer = await sock.downloadMediaMessage({
+                        message: { audioMessage: voiceMessage }
+                    });
+                } else if (sock.decryptMedia) {
+                    const mediaData = await sock.decryptMedia(voiceMessage);
+                    mediaBuffer = Buffer.from(mediaData);
+                } else if (sock.downloadAndSaveMediaMessage) {
+                    mediaPath = await sock.downloadAndSaveMediaMessage({
+                        message: { audioMessage: voiceMessage }
+                    }, path.join(process.cwd(), 'temp', `voice_${Date.now()}.mp3`));
+                } else if (voiceMessage.url) {
+                    const response = await axios({
+                        method: 'get',
+                        url: voiceMessage.url,
+                        responseType: 'arraybuffer'
+                    });
+                    mediaBuffer = Buffer.from(response.data);
+                } else if (voiceMessage._buffer) {
+                    mediaBuffer = voiceMessage._buffer;
+                } else {
+                    throw new Error('Cannot download media - no compatible method found');
+                }
+            } catch (downloadError) {
+                console.error('Download error:', downloadError);
+                throw new Error('Failed to download voice note');
+            }
+
+            // If we have a path but no buffer, read the file
+            if (mediaPath && !mediaBuffer) {
+                mediaBuffer = fs.readFileSync(mediaPath);
+            }
+
+            if (!mediaBuffer) {
                 await sock.sendMessage(chatId, {
                     text: '❌ Failed to download voice note. Please try again.'
                 });
                 return;
             }
 
-            // Convert to proper audio format if needed
-            let audioPath = mediaPath;
-            const ext = path.extname(mediaPath).toLowerCase();
+            // Save buffer to temp file
+            const tempDir = path.join(process.cwd(), 'temp');
+            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
             
-            if (ext !== '.mp3' && ext !== '.wav' && ext !== '.ogg') {
-                const convertedPath = path.join(process.cwd(), 'temp', `audio_${Date.now()}.mp3`);
+            const tempAudioPath = path.join(tempDir, `voice_${Date.now()}.mp3`);
+            fs.writeFileSync(tempAudioPath, mediaBuffer);
+
+            // Convert audio format
+            let audioPath = tempAudioPath;
+            const convertedPath = path.join(tempDir, `converted_${Date.now()}.mp3`);
+            
+            try {
+                await execPromise(`"${ffmpegPath}" -i "${tempAudioPath}" -ar 16000 -ac 1 -acodec libmp3lame "${convertedPath}" -y`);
+                audioPath = convertedPath;
+            } catch (e) {
+                console.error('FFmpeg conversion error:', e);
                 try {
-                    await execPromise(`ffmpeg -i "${mediaPath}" -acodec libmp3lame -ar 16000 -ac 1 "${convertedPath}" -y`);
+                    await execPromise(`"${ffmpegPath}" -i "${tempAudioPath}" -ar 16000 -ac 1 "${convertedPath}" -y`);
                     audioPath = convertedPath;
-                } catch (e) {
-                    console.error('FFmpeg conversion error:', e);
-                    // Try alternative conversion
-                    try {
-                        await execPromise(`ffmpeg -i "${mediaPath}" -ar 16000 -ac 1 "${convertedPath}" -y`);
-                        audioPath = convertedPath;
-                    } catch (e2) {
-                        console.error('Fallback conversion error:', e2);
-                    }
+                } catch (e2) {
+                    console.error('Fallback conversion error:', e2);
                 }
             }
 
-            // Try multiple transcription methods
+            // Update processing message
+            await sock.sendMessage(chatId, {
+                text: `🎤 *Processing Voice Note...*\n\n⏳ Transcribing with AI...\n🌍 Language: ${languages[language]}`
+            }, { quoted: message });
+
+            // ===== TRANSCRIBE USING APIS =====
             let transcription = null;
             let methodUsed = '';
 
-            // Method 1: Google Speech-to-Text API (if API key available)
+            // ============================================
+            // METHOD 1: ASSEMBLYAI API
+            // ============================================
             try {
-                transcription = await transcribeWithGoogle(audioPath, language);
+                console.log('🎯 Trying AssemblyAI...');
+                transcription = await transcribeWithAssemblyAI(audioPath);
                 if (transcription) {
-                    methodUsed = 'Google Speech API';
+                    methodUsed = 'AssemblyAI 🎙️';
+                    console.log('✅ AssemblyAI succeeded!');
                 }
             } catch (e) {
-                console.log('Google API failed, trying next method...');
+                console.log('❌ AssemblyAI failed:', e.message);
             }
 
-            // Method 2: OpenAI Whisper API (if API key available)
+            // ============================================
+            // METHOD 2: OPENAI WHISPER API (Fallback)
+            // ============================================
             if (!transcription) {
                 try {
-                    transcription = await transcribeWithWhisper(audioPath, language);
+                    console.log('🎯 Trying OpenAI Whisper...');
+                    transcription = await transcribeWithOpenAI(audioPath, language);
                     if (transcription) {
-                        methodUsed = 'OpenAI Whisper';
+                        methodUsed = 'OpenAI Whisper 🤖';
+                        console.log('✅ OpenAI Whisper succeeded!');
                     }
                 } catch (e) {
-                    console.log('Whisper API failed, trying next method...');
+                    console.log('❌ OpenAI Whisper failed:', e.message);
                 }
             }
 
-            // Method 3: Local Vosk (if installed)
+            // ============================================
+            // METHOD 3: HUGGING FACE FREE API (Last resort)
+            // ============================================
             if (!transcription) {
                 try {
-                    transcription = await transcribeWithVosk(audioPath, language);
+                    console.log('🎯 Trying Hugging Face...');
+                    transcription = await transcribeWithHuggingFace(audioPath);
                     if (transcription) {
-                        methodUsed = 'Vosk Offline';
+                        methodUsed = 'Hugging Face Free 🔓';
+                        console.log('✅ Hugging Face succeeded!');
                     }
                 } catch (e) {
-                    console.log('Vosk failed, trying next method...');
+                    console.log('❌ Hugging Face failed:', e.message);
                 }
             }
 
-            // Method 4: Free Speech-to-Text API (fallback)
-            if (!transcription) {
-                try {
-                    transcription = await transcribeWithFreeAPI(audioPath, language);
-                    if (transcription) {
-                        methodUsed = 'Free API';
-                    }
-                } catch (e) {
-                    console.log('Free API failed, trying next method...');
-                }
-            }
-
-            // Method 5: Local whisper.cpp (if available)
-            if (!transcription) {
-                try {
-                    transcription = await transcribeWithWhisperCpp(audioPath, language);
-                    if (transcription) {
-                        methodUsed = 'Whisper.cpp';
-                    }
-                } catch (e) {
-                    console.log('Whisper.cpp failed...');
-                }
-            }
-
-            // Clean up temporary files
+            // Clean up temp files
             try {
-                if (mediaPath && fs.existsSync(mediaPath)) fs.unlinkSync(mediaPath);
-                if (audioPath && audioPath !== mediaPath && fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+                if (fs.existsSync(tempAudioPath)) fs.unlinkSync(tempAudioPath);
+                if (fs.existsSync(convertedPath) && convertedPath !== tempAudioPath) fs.unlinkSync(convertedPath);
+                if (mediaPath && fs.existsSync(mediaPath) && mediaPath !== tempAudioPath) fs.unlinkSync(mediaPath);
             } catch (e) {}
 
             // Delete processing message
@@ -207,27 +241,23 @@ ${transcription}
 
 🌍 *Language:* ${languages[language]}
 🔧 *Method:* ${methodUsed}
-⏱️ *Duration:* ${voiceMessage.seconds || 'Unknown'} seconds
+⏱️ *Duration:* ${voiceMessage.seconds || 'Unknown'}s
+💰 *Cost:* Free (using your API credits)`;
 
-${transcription.length > 100 ? '📌 *Note:* Only first 1000 characters shown' : ''}`;
-
-                // Send as text
                 await sock.sendMessage(chatId, {
                     text: response
                 }, { quoted: message });
 
-                // Also send as document for long transcriptions
+                // Send long transcriptions as file
                 if (transcription.length > 1000) {
-                    const txtBuffer = Buffer.from(transcription, 'utf-8');
                     await sock.sendMessage(chatId, {
-                        document: txtBuffer,
+                        document: Buffer.from(transcription, 'utf-8'),
                         mimetype: 'text/plain',
                         fileName: `transcription_${Date.now()}.txt`,
-                        caption: '📄 *Full Transcription* (Download to read all)'
+                        caption: '📄 *Full Transcription*'
                     }, { quoted: message });
                 }
 
-                // Add reaction
                 await sock.sendMessage(chatId, { 
                     react: { text: '✅', key: message.key } 
                 }).catch(() => {});
@@ -236,22 +266,23 @@ ${transcription.length > 100 ? '📌 *Note:* Only first 1000 characters shown' :
                 await sock.sendMessage(chatId, {
                     text: `❌ *Transcription Failed*
 
-Could not transcribe the voice note. Please try:
+All transcription methods failed. Please check:
 
-1. Ensure the voice note is clear
-2. Try a different language
-3. Try again with a shorter voice note
+1. Your API keys in .env file
+2. Internet connection
+3. Voice note clarity
 
-💡 *Tips:*
-• Use clear pronunciation
-• Reduce background noise
-• Keep voice notes under 60 seconds for better results
+💡 *Try:*
+• Use a shorter voice note
+• Speak clearly
+• Try again later
 
-If the issue persists, try using the .totxt command again.`
+📋 *Your .env should have:*
+ASSEMBLYAI_API_KEY=your_key_here
+OPENAI_API_KEY=your_key_here`
                 }, { quoted: message });
             }
 
-            // Reset presence
             await sock.sendPresenceUpdate('available', chatId);
 
         } catch (error) {
@@ -261,56 +292,106 @@ If the issue persists, try using the .totxt command again.`
 
 ${error.message || 'Unknown error'}
 
-Please try again or use a different language.`
+💡 *Troubleshooting:*
+• Make sure FFmpeg is installed
+• Check your API keys in .env
+• Try a shorter voice note`
             }, { quoted: message });
         }
     }
 };
 
-// ─── TRANSCRIPTION METHODS ──────────────────────────────────────────
+// ─── ASSEMBLYAI API ──────────────────────────────────────────
 
-// Method 1: Google Speech-to-Text API
-async function transcribeWithGoogle(audioPath, language) {
+async function transcribeWithAssemblyAI(audioPath) {
     try {
-        const apiKey = process.env.GOOGLE_SPEECH_API_KEY;
-        if (!apiKey) throw new Error('No Google API key');
+        const apiKey = process.env.ASSEMBLYAI_API_KEY;
+        if (!apiKey) {
+            throw new Error('ASSEMBLYAI_API_KEY not found in .env');
+        }
 
+        console.log('📤 Uploading to AssemblyAI...');
+        
+        // Upload audio
         const audioBuffer = fs.readFileSync(audioPath);
-        const audioBase64 = audioBuffer.toString('base64');
-
-        const response = await axios({
+        const uploadResponse = await axios({
             method: 'post',
-            url: `https://speech.googleapis.com/v1/speech:recognize?key=${apiKey}`,
-            data: {
-                config: {
-                    encoding: 'MP3',
-                    sampleRateHertz: 16000,
-                    languageCode: language === 'sw' ? 'sw-KE' : language === 'en' ? 'en-US' : `${language}-${language.toUpperCase()}`,
-                    enableAutomaticPunctuation: true,
-                    model: 'default',
-                    useEnhanced: true
-                },
-                audio: {
-                    content: audioBase64
-                }
-            }
+            url: 'https://api.assemblyai.com/v2/upload',
+            data: audioBuffer,
+            headers: {
+                'Authorization': apiKey,
+                'Content-Type': 'application/octet-stream'
+            },
+            timeout: 60000
         });
 
-        if (response.data.results && response.data.results.length > 0) {
-            return response.data.results[0].alternatives[0].transcript;
+        const audioUrl = uploadResponse.data.upload_url;
+        console.log('✅ Uploaded successfully');
+
+        // Start transcription
+        console.log('🎯 Starting transcription...');
+        const transcriptResponse = await axios({
+            method: 'post',
+            url: 'https://api.assemblyai.com/v2/transcript',
+            data: {
+                audio_url: audioUrl,
+                language_code: 'sw',
+                punctuate: true,
+                format_text: true,
+                speaker_labels: false
+            },
+            headers: {
+                'Authorization': apiKey,
+                'Content-Type': 'application/json'
+            },
+            timeout: 60000
+        });
+
+        const transcriptId = transcriptResponse.data.id;
+
+        // Poll for result
+        let result = null;
+        for (let i = 0; i < 60; i++) { // Wait up to 60 seconds
+            await new Promise(r => setTimeout(r, 1000));
+            
+            const statusResponse = await axios({
+                method: 'get',
+                url: `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
+                headers: {
+                    'Authorization': apiKey
+                },
+                timeout: 30000
+            });
+
+            if (statusResponse.data.status === 'completed') {
+                result = statusResponse.data.text;
+                console.log('✅ Transcription completed!');
+                break;
+            } else if (statusResponse.data.status === 'error') {
+                throw new Error(statusResponse.data.error || 'AssemblyAI error');
+            }
         }
-        return null;
+
+        return result;
     } catch (error) {
-        console.error('Google API error:', error.message);
+        console.error('AssemblyAI error:', error.message);
+        if (error.response) {
+            console.error('Response data:', error.response.data);
+        }
         return null;
     }
 }
 
-// Method 2: OpenAI Whisper API
-async function transcribeWithWhisper(audioPath, language) {
+// ─── OPENAI WHISPER API ──────────────────────────────────────────
+
+async function transcribeWithOpenAI(audioPath, language) {
     try {
         const apiKey = process.env.OPENAI_API_KEY;
-        if (!apiKey) throw new Error('No OpenAI API key');
+        if (!apiKey) {
+            throw new Error('OPENAI_API_KEY not found in .env');
+        }
+
+        console.log('🎯 Sending to OpenAI Whisper...');
 
         const formData = new FormData();
         formData.append('file', fs.createReadStream(audioPath));
@@ -325,25 +406,32 @@ async function transcribeWithWhisper(audioPath, language) {
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
                 ...formData.getHeaders()
-            }
+            },
+            timeout: 60000
         });
 
+        console.log('✅ OpenAI Whisper succeeded!');
         return response.data.text || response.data;
     } catch (error) {
-        console.error('Whisper API error:', error.message);
+        console.error('OpenAI error:', error.message);
+        if (error.response) {
+            console.error('Response data:', error.response.data);
+        }
         return null;
     }
 }
 
-// Method 3: Free Speech-to-Text API (Hugging Face or similar)
-async function transcribeWithFreeAPI(audioPath, language) {
+// ─── HUGGING FACE FREE API (No key needed) ──────────────────────────
+
+async function transcribeWithHuggingFace(audioPath) {
     try {
-        // Try using Hugging Face's free inference API
+        console.log('🎯 Trying Hugging Face free API...');
+
         const audioBuffer = fs.readFileSync(audioPath);
         const formData = new FormData();
         formData.append('audio', audioBuffer, { filename: 'audio.mp3' });
 
-        // Use a free model from Hugging Face
+        // Use free Whisper model
         const response = await axios({
             method: 'post',
             url: 'https://api-inference.huggingface.co/models/openai/whisper-small',
@@ -351,78 +439,16 @@ async function transcribeWithFreeAPI(audioPath, language) {
             headers: {
                 ...formData.getHeaders()
             },
-            timeout: 30000
+            timeout: 60000
         });
 
         if (response.data && response.data.text) {
+            console.log('✅ Hugging Face succeeded!');
             return response.data.text;
         }
         return null;
     } catch (error) {
-        console.error('Free API error:', error.message);
-        return null;
-    }
-}
-
-// Method 4: Vosk Offline Speech Recognition
-async function transcribeWithVosk(audioPath, language) {
-    try {
-        // Check if vosk is installed
-        const vosk = require('vosk');
-        const modelPath = path.join(process.cwd(), 'models', `vosk-model-${language === 'sw' ? 'sw' : 'en'}-small`);
-        
-        if (!fs.existsSync(modelPath)) {
-            throw new Error('Vosk model not found');
-        }
-
-        const model = new vosk.Model(modelPath);
-        const rec = new vosk.Recognizer({ model: model, sampleRate: 16000 });
-
-        // Read audio file
-        const audioBuffer = fs.readFileSync(audioPath);
-        
-        // Convert to proper format for Vosk
-        const pcmPath = path.join(process.cwd(), 'temp', `pcm_${Date.now()}.pcm`);
-        await execPromise(`ffmpeg -i "${audioPath}" -acodec pcm_s16le -ar 16000 -ac 1 "${pcmPath}" -y`);
-        
-        const pcmBuffer = fs.readFileSync(pcmPath);
-        const result = rec.acceptWaveform(pcmBuffer);
-        
-        fs.unlinkSync(pcmPath);
-        
-        if (result) {
-            const text = rec.result().text;
-            return text || null;
-        }
-        return null;
-    } catch (error) {
-        console.error('Vosk error:', error.message);
-        return null;
-    }
-}
-
-// Method 5: Whisper.cpp Local
-async function transcribeWithWhisperCpp(audioPath, language) {
-    try {
-        const whisperPath = path.join(process.cwd(), 'whisper', 'main');
-        const modelPath = path.join(process.cwd(), 'whisper', `ggml-${language === 'sw' ? 'small' : 'base'}.bin`);
-        
-        if (!fs.existsSync(whisperPath) || !fs.existsSync(modelPath)) {
-            throw new Error('Whisper.cpp not installed');
-        }
-
-        const outputPath = path.join(process.cwd(), 'temp', `whisper_${Date.now()}.txt`);
-        
-        await execPromise(`"${whisperPath}" -m "${modelPath}" -f "${audioPath}" --language ${language} --output-txt --output-file "${outputPath}"`);
-        
-        if (fs.existsSync(outputPath)) {
-            const text = fs.readFileSync(outputPath, 'utf-8');
-            fs.unlinkSync(outputPath);
-            return text.trim();
-        }
-        return null;
-    } catch (error) {
-        console.error('Whisper.cpp error:', error.message);
+        console.error('Hugging Face error:', error.message);
         return null;
     }
 }
