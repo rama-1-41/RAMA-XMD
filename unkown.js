@@ -142,11 +142,11 @@ const { anticallCommand, readState: readAnticallState } = require('./plugins/ant
 const { pmblockerCommand, readState: readPmBlockerState } = require('./plugins/pmblocker');
 const settingsCommand = require('./plugins/settings');
 const soraCommand = require('./plugins/sora');
-const newsletterCommand = require('./plugins/newsletter');
+const newsletterCommand = require('./plugins/newsletter'); // IMPORT NEWSLETTER
 const { handleAiVoiceCommand, handleAiVoiceMessage } = require('./plugins/aiVoice');
 const getppCommand = require('./plugins/getpp');
 const totxtCommand = require('./plugins/totxt');
-const aiTools = require('./plugins/aitools'); // ADD THIS LINE
+const aiTools = require('./plugins/aitools');
 
 // Global settings
 global.packname = settings.packname;
@@ -1162,8 +1162,13 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await soraCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.newsletter'):
-                await newsletterCommand.handler(sock, message);
-                commandExecuted = true;
+            case userMessage.startsWith('.nl'):
+            case userMessage.startsWith('.channelinfo'):
+                {
+                    const args = userMessage.split(' ').slice(1);
+                    await newsletterCommand.handler(sock, chatId, message, args);
+                    commandExecuted = true;
+                }
                 break;
             case userMessage.startsWith('.aivoice'):
                 {
