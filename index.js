@@ -959,4 +959,4 @@ process.on("unhandledRejection", (reason, promise) => {
     console.error('Unhandled Rejection:', reason);
 });
 
-module.exports = { store, activeConnections, activeSessions, totalUsers, io };
+module.exports = { store, activeConnections, activeSessions, totalUsers, io }
